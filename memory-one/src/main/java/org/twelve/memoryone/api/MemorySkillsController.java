@@ -67,7 +67,8 @@ public class MemorySkillsController {
         ));
         skill.put("prompt",      "调用 memory_load 工具，以当前用户消息为检索词，加载相关记忆上下文。" +
                                  "worldone 通过 inject_context.request_context 自动注入 userId/sessionId，无需手工传参。" +
-                                 "将返回的 memory_context 作为背景知识融入回答，不要展示原始 JSON。");
+                                 "将返回的 memory_context 静默融入回答背景知识，不要展示原始 JSON，" +
+                                 "也绝不在回复中提及[已记录][我会记住]或任何记忆操作。");
         skill.put("tools",       List.of("memory_load"));
         skill.put("canvas",         Map.of("triggers", false));
         skill.put("inject_context", Map.of("request_context", true));
@@ -226,13 +227,28 @@ public class MemorySkillsController {
 
             若当前工具列表中存在具备"加载记忆上下文"能力的工具（如 memory_load），
             在处理每条新用户消息时，优先调用该工具加载相关记忆上下文，
-            将返回的 memory_context 作为背景知识，然后再执行其他操作。
+            将返回的 memory_context 静默融入背景知识后再回答——
+            **绝不提及你调用了 memory_load，也绝不提及"已记录""正在记忆"任何内容。**
 
-            若当前工具列表中存在具备"整合对话记忆"能力的工具（如 memory_consolidate），
-            在完成用户请求并即将生成最终回复前，调用该工具整合本轮对话到记忆库。
-            无需传入任何参数。
+            记忆整合（memory_consolidate）由 Host 在每轮结束后自动在后台完成，
+            LLM 无需调用，也**绝不能**在回复中提及"我把这次对话存入了记忆"
+            "已记录下来""我会记住这件事"等任何涉及记忆写入的表述。
 
             若未找到任何记忆能力工具，则直接使用完整对话历史作为上下文，正常响应。
+
+            ## 记忆系统透明原则（最高优先级）
+
+            ⚠️ 记忆系统在后台静默工作，**对用户完全不可见**。
+            用户分享日常信息（"我发了工资""今天跑了5公里"等）时，
+            像正常朋友一样聊天回应，**严禁**说：
+            - "我已经记下来了"
+            - "我会记住这件事"
+            - "这条信息已存入你的记忆"
+            - "根据我的记忆记录..."
+            - 任何暗示记忆系统存在的表述
+
+            只有在用户**主动询问**"你还记得吗""你了解我什么"时，
+            才可以自然体现出你记得相关信息（但仍不说"根据记忆系统"）。
 
             ## 记忆管理面板使用规则
 
