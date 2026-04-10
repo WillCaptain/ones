@@ -2867,22 +2867,31 @@ function handleKey(e, area) {
 // ─── SESSION event ────────────────────────────────────────────────────────────
 function handleSessionEvent(data, triggerMsg) {
   const { ui_session_id, name, type, welcome_message } = data;
-  // 欢迎语优先用 widget 配置的 welcome_message，其次兜底"进入 {name}"
   const welcomeHtml = md(welcome_message || `进入 **${name}**`);
-  sessionData[ui_session_id] = {
-    id: ui_session_id, type, name, status: 'active',
-    messages: [{ role: 'system', html: welcomeHtml }],
-    canvasMode: false, graphState: { nodes: [], edges: [] },
-    showWelcome: false,
-  };
-  // 切换到新 session
-  switchSession(ui_session_id);
-  // 新建任务时，确保面板是展开的，让用户看到新 task 条目
-  setPanelOpen(true);
-  // 切换到任务分类，让新 task 高亮
-  if (type === 'task' || type === 'event') {
-    activeCategory = type;
-    updatePanelTitle();
+
+  if (sessionData[ui_session_id]) {
+    // Session already exists: update metadata but preserve chat history
+    const existing = sessionData[ui_session_id];
+    existing.name   = name || existing.name;
+    existing.status = existing.status === 'active' ? 'active' : existing.status;
+    // Only switch to it (don't re-render as blank)
+    switchSession(ui_session_id);
+  } else {
+    // New session: create fresh
+    sessionData[ui_session_id] = {
+      id: ui_session_id, type, name, status: 'active',
+      messages: [{ role: 'system', html: welcomeHtml }],
+      canvasMode: false, graphState: { nodes: [], edges: [] },
+      showWelcome: false,
+    };
+    switchSession(ui_session_id);
+    // 新建任务时，确保面板是展开的，让用户看到新 task 条目
+    setPanelOpen(true);
+    // 切换到任务分类，让新 task 高亮
+    if (type === 'task' || type === 'event') {
+      activeCategory = type;
+      updatePanelTitle();
+    }
   }
   updateFuncbarActive();
   renderSessions();

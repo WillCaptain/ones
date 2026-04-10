@@ -36,7 +36,8 @@ public class MemoryWidgetsController {
 
         widget.put("internal_tools", List.of(
             "memory_query", "memory_create", "memory_update",
-            "memory_supersede", "memory_delete", "memory_promote",
+            "memory_supersede", "memory_delete_request", "memory_delete_confirmed",
+            "memory_delete", "memory_promote",
             "memory_set_instruction", "memory_load"
         ));
 
@@ -48,7 +49,7 @@ public class MemoryWidgetsController {
                 - 用 memory_query 查询（支持关键词、类型、scope 过滤）
                 - 用 memory_update 修改 content/importance/tags
                 - 用 memory_supersede 用新内容取代旧 memory
-                - 用 memory_delete 软删除
+                - 用 memory_delete_request 删除（⚠️ 必须用此工具，不要用 memory_delete！会弹出确认框，用户确认后才真正删除）
                 - 用 memory_promote 把 SESSION memory 提升为 GLOBAL
                 - 用 memory_create 手工添加新 memory
                 每次操作后简洁说明结果即可，不要列出完整 JSON。
@@ -58,7 +59,8 @@ public class MemoryWidgetsController {
         widget.put("context_prompt", """
             ## 当前 Canvas：Memory 管理
             用户正在查看和管理 Agent 的 Memory。
-            你可以使用 memory_query/memory_update/memory_delete/memory_promote/memory_create 工具操作 memory。
+            你可以使用 memory_query/memory_update/memory_delete_request/memory_promote/memory_create 工具操作 memory。
+            ⚠️ 删除时必须用 memory_delete_request，不要直接用 memory_delete。
             优先用工具完成操作，操作后用 1-2 句话确认结果。
             """);
 
@@ -90,7 +92,7 @@ public class MemoryWidgetsController {
         ));
         widget.put("refresh_skill", "memory_view");
         widget.put("mutating_tools", List.of(
-            "memory_create", "memory_update", "memory_delete",
+            "memory_create", "memory_update", "memory_delete_confirmed",
             "memory_supersede", "memory_promote"
         ));
 
@@ -143,8 +145,8 @@ public class MemoryWidgetsController {
                 "new_content", Map.of("type", "string", "description", "新内容")
             ), List.of("old_id", "new_content")));
 
-        tools.add(buildTool("memory_delete",
-            "软删除一条 memory",
+        tools.add(buildTool("memory_delete_request",
+            "请求删除一条 memory（需用户确认）—— 会弹出 sys.confirm 确认框，用户点确认后才真正删除",
             Map.of("id", Map.of("type", "string", "description", "Memory UUID")),
             List.of("id")));
 
