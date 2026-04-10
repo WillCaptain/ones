@@ -736,6 +736,46 @@ body.session-readonly .mem-create-btn { pointer-events: none; opacity: .4; }
 }
 .chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
 
+/* ── AIPP System Widget Modal (sys.confirm / sys.alert / sys.prompt) ── */
+.sys-modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.6); z-index: 2000;
+  align-items: center; justify-content: center;
+}
+.sys-modal-overlay.open { display: flex; }
+.sys-modal {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius-lg); padding: 24px 28px;
+  min-width: 320px; max-width: 480px; width: 90%;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5);
+  display: flex; flex-direction: column; gap: 14px;
+}
+.sys-modal-title {
+  font-size: 15px; font-weight: 600; color: var(--text);
+}
+.sys-modal-message {
+  font-size: 13px; color: var(--text-dim); line-height: 1.6;
+  white-space: pre-wrap;
+}
+.sys-modal-input {
+  background: var(--surface3); border: 1px solid var(--border2);
+  border-radius: var(--radius); color: var(--text);
+  padding: 8px 12px; font-size: 13px; outline: none; width: 100%;
+  box-sizing: border-box;
+}
+.sys-modal-input:focus { border-color: var(--accent); }
+.sys-modal-buttons {
+  display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px;
+}
+.sys-modal-btn {
+  padding: 7px 18px; border-radius: var(--radius); border: none;
+  font-size: 13px; font-weight: 500; cursor: pointer; transition: opacity .15s;
+}
+.sys-modal-btn:hover { opacity: .85; }
+.sys-modal-btn.primary   { background: var(--accent);  color: #fff; }
+.sys-modal-btn.danger    { background: var(--danger);  color: #fff; }
+.sys-modal-btn.secondary { background: var(--surface3); color: var(--text-dim); border: 1px solid var(--border); }
+
 /* ── Settings overlay ── */
 .settings-overlay {
   display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55);
@@ -986,6 +1026,18 @@ window.addEventListener('DOMContentLoaded', () => {
 
 <!-- Settings overlay -->
 <div class="settings-overlay" id="settings-overlay" onclick="overlayClick(event)">
+
+<!-- sys.confirm / sys.alert / sys.prompt — AIPP System Widget Modal -->
+<div class="sys-modal-overlay" id="sys-modal-overlay">
+  <div class="sys-modal" id="sys-modal">
+    <div class="sys-modal-title" id="sys-modal-title"></div>
+    <div class="sys-modal-message" id="sys-modal-message"></div>
+    <!-- sys.prompt input -->
+    <input class="sys-modal-input" id="sys-modal-input" type="text" style="display:none" />
+    <!-- buttons -->
+    <div class="sys-modal-buttons" id="sys-modal-buttons"></div>
+  </div>
+</div>
   <div class="settings-panel">
     <div class="settings-header">
       <span class="settings-title" data-i18n="settings.title">⚙ World One 设置</span>
@@ -1237,7 +1289,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 <code id="ae-fn-header" style="font-size:12px;color:#9a90ff;font-family:'JetBrains Mono','Fira Code',monospace;background:var(--surface3);padding:2px 7px;border-radius:4px;">(entity) -&gt;</code>
                 <span id="ae-param-hint" style="font-size:10px;color:var(--text-muted);">entity 参数可访问所有字段及集合变量</span>
               </div>
-              <div id="ae-code-editor" style="height:220px;border:1px solid var(--border);border-radius:6px;overflow:hidden;"></div>
+              <div id="ae-code-editor" style="height:220px;border:1px solid var(--border);border-radius:6px;"></div>
               <!-- fallback textarea when Monaco not available -->
               <textarea id="ae-code" rows="12" placeholder="(employee) -> salaryRecords.create({_employee = employee.id, status = &quot;initiated&quot;})" style="display:none;width:100%;box-sizing:border-box;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:10px 12px;color:var(--text);font-size:12px;font-family:'JetBrains Mono','Fira Code',monospace;resize:vertical;min-height:180px;line-height:1.5;"></textarea>
             </div>
@@ -2844,6 +2896,12 @@ function handleCanvasCommand(cmd) {
   if (!cmd?.action) return;
   const { action, widget_type, props } = cmd;
 
+  // sys.* — AIPP 系统内置 widget（模态覆盖层，不进导航栈）
+  if (widget_type && widget_type.startsWith('sys.')) {
+    if (action === 'open') handleSysWidgetCommand(widget_type, cmd.data || props);
+    return;
+  }
+
   // Route to widget-specific handler
   if (widget_type === 'memory-manager') {
     handleMemoryManagerCommand(action, props, cmd);
@@ -3220,7 +3278,16 @@ async function memProxyTool(tool, args) {
 
 async function memCardDelete(id, e) {
   e.stopPropagation();
-  if (!confirm('确定删除此条记忆？')) return;
+  const memory = allMemories.find(m => m.id === id);
+  const summary = memory ? (memory.summary || memory.content || id) : id;
+  const { confirmed } = await showSysModal('sys.confirm', {
+    mode:    'yes_no',
+    title:   '确认删除记忆',
+    message: `确定要删除这条记忆吗？此操作不可撤销。\n\n• ${summary}`,
+    danger:  true,
+    yes: {}, no: {}
+  });
+  if (!confirmed) return;
   await memProxyTool('memory_delete', { id });
   // Remove from local cache and DOM without reordering
   const idx = allMemories.findIndex(m => m.id === id);
@@ -4906,6 +4973,132 @@ function closeSettings() {
 
 function overlayClick(e) {
   if (e.target === document.getElementById('settings-overlay')) closeSettings();
+}
+
+function appendAssistantMessage(text) {
+  if (text) addMessage('assistant', text);
+}
+
+// ── AIPP System Widget: sys.confirm / sys.alert / sys.prompt ────────────────
+
+let _sysModalResolve = null;
+
+/**
+ * 显示 sys.* 系统模态框，返回 Promise<{confirmed: bool, value?: string}>
+ * data 结构遵循 AippSystemWidget 规范（见 shared/aipp-protocol）
+ */
+function showSysModal(widgetType, data) {
+  return new Promise(resolve => {
+    _sysModalResolve = resolve;
+    const overlay  = document.getElementById('sys-modal-overlay');
+    const titleEl  = document.getElementById('sys-modal-title');
+    const msgEl    = document.getElementById('sys-modal-message');
+    const inputEl  = document.getElementById('sys-modal-input');
+    const btnsEl   = document.getElementById('sys-modal-buttons');
+
+    titleEl.textContent = data.title  || '';
+    msgEl.textContent   = data.message || '';
+    btnsEl.innerHTML    = '';
+    inputEl.style.display = 'none';
+    inputEl.value = '';
+
+    if (widgetType === 'sys.prompt') {
+      inputEl.placeholder   = data.placeholder || '';
+      inputEl.style.display = 'block';
+      setTimeout(() => inputEl.focus(), 50);
+    }
+
+    if (widgetType === 'sys.confirm') {
+      const mode    = data.mode || 'yes_no';
+      const isDanger = !!data.danger;
+      const [yesLabel, noLabel] = mode === 'ok_cancel' ? ['确定', '取消'] : ['确认删除', '取消'];
+
+      const yesBtn = document.createElement('button');
+      yesBtn.className = `sys-modal-btn ${isDanger ? 'danger' : 'primary'}`;
+      yesBtn.textContent = yesLabel;
+      yesBtn.onclick = () => closeSysModal(true);
+
+      const noBtn = document.createElement('button');
+      noBtn.className = 'sys-modal-btn secondary';
+      noBtn.textContent = noLabel;
+      noBtn.onclick = () => closeSysModal(false);
+
+      btnsEl.appendChild(noBtn);
+      btnsEl.appendChild(yesBtn);
+    } else if (widgetType === 'sys.alert') {
+      const okBtn = document.createElement('button');
+      okBtn.className = 'sys-modal-btn primary';
+      okBtn.textContent = '确定';
+      okBtn.onclick = () => closeSysModal(true);
+      btnsEl.appendChild(okBtn);
+    } else if (widgetType === 'sys.prompt') {
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'sys-modal-btn secondary';
+      cancelBtn.textContent = '取消';
+      cancelBtn.onclick = () => closeSysModal(false);
+
+      const submitBtn = document.createElement('button');
+      submitBtn.className = 'sys-modal-btn primary';
+      submitBtn.textContent = '确定';
+      submitBtn.onclick = () => closeSysModal(true, inputEl.value.trim());
+      inputEl.onkeydown = e => { if (e.key === 'Enter') submitBtn.click(); };
+
+      btnsEl.appendChild(cancelBtn);
+      btnsEl.appendChild(submitBtn);
+    } else if (widgetType === 'sys.choice') {
+      (data.options || []).forEach(opt => {
+        const btn = document.createElement('button');
+        btn.className = opt.tool ? 'sys-modal-btn primary' : 'sys-modal-btn secondary';
+        btn.textContent = opt.label || '';
+        btn.onclick = () => closeSysModal(!!opt.tool, null, opt);
+        btnsEl.appendChild(btn);
+      });
+    }
+
+    overlay.classList.add('open');
+  });
+}
+
+function closeSysModal(confirmed, value, choiceOption) {
+  document.getElementById('sys-modal-overlay').classList.remove('open');
+  if (_sysModalResolve) {
+    _sysModalResolve({ confirmed, value, choiceOption });
+    _sysModalResolve = null;
+  }
+}
+
+/**
+ * 处理 canvas action=open 且 widget_type 为 sys.* 的指令。
+ * 渲染系统模态框，用户响应后自动通过 ToolProxy 执行 yes/submit 工具。
+ */
+async function handleSysWidgetCommand(widgetType, data) {
+  if (!data) return;
+  const { confirmed, value, choiceOption } = await showSysModal(widgetType, data);
+
+  if (widgetType === 'sys.confirm') {
+    if (confirmed && data.yes && data.yes.tool) {
+      await memProxyTool(data.yes.tool, data.yes.args || {});
+    } else if (!confirmed && data.no && data.no.message) {
+      appendAssistantMessage(data.no.message);
+    }
+  } else if (widgetType === 'sys.alert') {
+    if (data.close_message) appendAssistantMessage(data.close_message);
+  } else if (widgetType === 'sys.prompt') {
+    if (confirmed && value !== null && data.submit && data.submit.tool) {
+      const args = { [data.submit.arg_name || 'value']: value };
+      await memProxyTool(data.submit.tool, args);
+    } else if (!confirmed && data.cancel && data.cancel.message) {
+      appendAssistantMessage(data.cancel.message);
+    }
+  } else if (widgetType === 'sys.choice') {
+    if (confirmed && choiceOption) {
+      if (choiceOption.tool) {
+        await memProxyTool(choiceOption.tool, choiceOption.args || {});
+      } else if (choiceOption.message) {
+        appendAssistantMessage(choiceOption.message);
+      }
+    }
+  }
 }
 
 // ── Apps Panel ─────────────────────────────────────────────────────────────

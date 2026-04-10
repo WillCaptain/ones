@@ -41,6 +41,7 @@ public class MemorySkillsController {
     public static List<Map<String, Object>> buildSkillList() {
         return List.of(memoryLoadSkill(), memoryConsolidateSkill(),
                        memoryViewSkill(), memorySetInstructionSkill(),
+                       memoryDeleteRequestSkill(),
                        memoryWorkspaceJoinSkill());
     }
 
@@ -150,6 +151,39 @@ public class MemorySkillsController {
                                     "scope=GLOBAL 表示全局永久生效，scope=SESSION 仅本次会话有效。" +
                                     "记录成功后确认用户的指令已保存，下一轮起生效。");
         skill.put("tools",          List.of("memory_set_instruction"));
+        skill.put("inject_context", Map.of("request_context", true));
+        return skill;
+    }
+
+    // ── memory_delete_request ─────────────────────────────────────────────
+
+    /**
+     * memory_delete_request：LLM 发起删除请求，返回 sys.confirm 让用户确认。
+     *
+     * <p>不直接删除，而是返回 {@code sys.confirm} canvas 指令。
+     * 用户点击"确认删除"后，world-one 通过 ToolProxy 调用 {@code memory_delete_confirmed}。
+     */
+    private static Map<String, Object> memoryDeleteRequestSkill() {
+        Map<String, Object> skill = new LinkedHashMap<>();
+        skill.put("name",        "memory_delete_request");
+        skill.put("description", "删除指定记忆。需要用户确认后才执行。" +
+                                 "当用户说「删除记忆」「忘掉...」「移除...这条记忆」时调用。" +
+                                 "可通过 id 精确删除，或通过 keyword 模糊匹配后让用户确认。");
+        skill.put("parameters",  Map.of(
+            "type",       "object",
+            "properties", Map.of(
+                "id",      Map.of("type", "string",
+                    "description", "要删除的记忆 ID（精确删除，优先于 keyword）"),
+                "keyword", Map.of("type", "string",
+                    "description", "关键词，用于模糊查找要删除的记忆（id 未提供时使用）")
+            ),
+            "required",   List.of()
+        ));
+        skill.put("canvas",  Map.of("triggers", true, "widget_type", "sys.confirm"));
+        skill.put("prompt",  "调用 memory_delete_request 工具。" +
+                             "如果用户指定了 id，传入 id；否则从用户描述中提取关键词传入 keyword。" +
+                             "工具会返回 sys.confirm 确认框，等待用户决策后自动执行删除，无需 LLM 继续操作。");
+        skill.put("tools",   List.of("memory_delete_request"));
         skill.put("inject_context", Map.of("request_context", true));
         return skill;
     }

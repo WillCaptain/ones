@@ -82,6 +82,16 @@ public class MemoryToolsController {
         return ok(tools.delete(args(body), context(body)));
     }
 
+    @PostMapping("/memory_delete_request")
+    public ResponseEntity<Map<String, Object>> deleteRequest(@RequestBody Map<String, Object> body) {
+        return ok(tools.deleteRequest(args(body), context(body)));
+    }
+
+    @PostMapping("/memory_delete_confirmed")
+    public ResponseEntity<Map<String, Object>> deleteConfirmed(@RequestBody Map<String, Object> body) {
+        return ok(tools.deleteConfirmed(args(body), context(body)));
+    }
+
     @PostMapping("/memory_workspace_join")
     public ResponseEntity<Map<String, Object>> workspaceJoin(@RequestBody Map<String, Object> body) {
         return ok(tools.registerWorkspaceParticipation(args(body), context(body)));

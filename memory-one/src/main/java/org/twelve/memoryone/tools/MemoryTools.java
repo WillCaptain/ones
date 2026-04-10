@@ -228,7 +228,89 @@ public class MemoryTools {
         return Map.of("ok", true, "new_memory", memoryToMap(newer));
     }
 
+    // ── memory_delete_request ─────────────────────────────────────────────
+    //    LLM 路径：找到目标记忆，返回 sys.confirm canvas 让用户确认后再删除
+
+    public Map<String, Object> deleteRequest(Map<String, Object> args, Map<String, Object> context) {
+        String idStr    = str(args, "id",      null);
+        String keyword  = str(args, "keyword", null);
+        String agentId  = ctxOrArg(context, args, "agentId", "agent_id", DEFAULT_AGENT_ID);
+        String userId   = ctxOrArg(context, args, "userId",  "user_id",  DEFAULT_USER_ID);
+
+        List<Memory> targets = new ArrayList<>();
+        if (idStr != null) {
+            store.findById(UUID.fromString(idStr)).ifPresent(targets::add);
+        } else if (keyword != null && !keyword.isBlank()) {
+            MemoryQuery q = MemoryQuery.forAgent(agentId).userId(userId).textSearch(keyword).limit(20).build();
+            targets.addAll(store.query(q));
+        }
+
+        if (targets.isEmpty()) {
+            return Map.of("ok", false, "error", "未找到匹配的记忆，请确认 id 或 keyword");
+        }
+
+        List<String> summaries = targets.stream()
+                .limit(5)
+                .map(m -> "• " + m.content())
+                .toList();
+        String more = targets.size() > 5 ? "\n…共 " + targets.size() + " 条" : "";
+        String message = "确定要删除以下记忆吗？此操作不可撤销。\n\n"
+                + String.join("\n", summaries) + more;
+
+        List<String> ids = targets.stream()
+                .map(m -> m.id().toString())
+                .collect(java.util.stream.Collectors.toList());
+
+        Map<String, Object> confirmData = new LinkedHashMap<>();
+        confirmData.put("mode",    "yes_no");
+        confirmData.put("title",   "确认删除记忆");
+        confirmData.put("message", message);
+        confirmData.put("danger",  true);
+        confirmData.put("yes", Map.of(
+                "tool", "memory_delete_confirmed",
+                "args", Map.of("ids", ids)
+        ));
+        confirmData.put("no", Map.of(
+                "message", "已取消删除操作"
+        ));
+
+        return Map.of(
+                "ok",     true,
+                "canvas", Map.of(
+                        "action",      "open",
+                        "widget_type", "sys.confirm",
+                        "data",        confirmData
+                )
+        );
+    }
+
+    // ── memory_delete_confirmed ───────────────────────────────────────────
+    //    由 sys.confirm 的 yes 按钮通过 ToolProxy 直接调用，执行真正的删除
+
+    public Map<String, Object> deleteConfirmed(Map<String, Object> args, Map<String, Object> context) {
+        @SuppressWarnings("unchecked")
+        List<String> ids = (List<String>) args.getOrDefault("ids", List.of());
+        if (ids.isEmpty()) {
+            String idStr = str(args, "id", null);
+            if (idStr != null) ids = List.of(idStr);
+        }
+        if (ids.isEmpty()) return error("ids is required");
+
+        int deleted = 0;
+        for (String idStr : ids) {
+            try {
+                Optional<Memory> opt = store.findById(UUID.fromString(idStr));
+                if (opt.isPresent()) {
+                    doDelete(opt.get());
+                    deleted++;
+                }
+            } catch (IllegalArgumentException ignored) {}
+        }
+        return Map.of("ok", true, "deleted_count", deleted);
+    }
+
     // ── memory_delete ─────────────────────────────────────────────────────
+    //    Widget ToolProxy 路径（memory-manager 删除按钮直接调用，已通过前端 sys.confirm 确认）
 
     public Map<String, Object> delete(Map<String, Object> args, Map<String, Object> context) {
         String idStr = str(args, "id", null);
@@ -237,22 +319,24 @@ public class MemoryTools {
         Optional<Memory> opt = store.findById(UUID.fromString(idStr));
         if (opt.isEmpty()) return error("Memory not found: " + idStr);
 
-        store.findById(UUID.fromString(idStr)).ifPresent(m -> {
-            UUID deletedSentinel = UUID.nameUUIDFromBytes(DELETED_MARKER.getBytes());
-            Instant now = Instant.now();
-            Memory placeholder = new Memory(
-                deletedSentinel.equals(m.id()) ? UUID.randomUUID() : deletedSentinel,
-                m.type(), m.scope(),
-                m.agentId(), m.userId(), null, null,
-                "[deleted]", null, List.of(),
-                0f, 0f, MemorySource.SYSTEM, MemoryHorizon.SHORT_TERM,
-                null, null, null,
-                now, now, now, 0, Instant.now().plusSeconds(1),
-                null, List.of(), List.of(), List.of()
-            );
-            store.supersede(m.id(), placeholder);
-        });
+        doDelete(opt.get());
         return Map.of("ok", true, "deleted_id", idStr);
+    }
+
+    private void doDelete(Memory m) {
+        UUID deletedSentinel = UUID.nameUUIDFromBytes(DELETED_MARKER.getBytes());
+        Instant now = Instant.now();
+        Memory placeholder = new Memory(
+            deletedSentinel.equals(m.id()) ? UUID.randomUUID() : deletedSentinel,
+            m.type(), m.scope(),
+            m.agentId(), m.userId(), null, null,
+            "[deleted]", null, List.of(),
+            0f, 0f, MemorySource.SYSTEM, MemoryHorizon.SHORT_TERM,
+            null, null, null,
+            now, now, now, 0, Instant.now().plusSeconds(1),
+            null, List.of(), List.of(), List.of()
+        );
+        store.supersede(m.id(), placeholder);
     }
 
     // ── memory_promote ────────────────────────────────────────────────────
