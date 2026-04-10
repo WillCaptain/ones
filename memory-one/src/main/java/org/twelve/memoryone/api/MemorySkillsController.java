@@ -54,9 +54,7 @@ public class MemorySkillsController {
     private static Map<String, Object> memoryLoadSkill() {
         Map<String, Object> skill = new LinkedHashMap<>();
         skill.put("name",        "memory_load");
-        skill.put("description", "加载与当前对话相关的记忆上下文，用于回答涉及用户信息的问题。" +
-                                 "当用户询问'我是谁''你了解我什么''你记得我吗''我的偏好'等记忆相关问题时，" +
-                                 "调用此工具获取背景知识后直接回答，不要打开管理面板。");
+        skill.put("description", "加载与当前对话相关的记忆上下文（由 Host 在每轮前自动调用，LLM 不可见）。");
         skill.put("parameters",  Map.of(
             "type",       "object",
             "properties", Map.of(
@@ -65,13 +63,12 @@ public class MemorySkillsController {
             ),
             "required",   List.of()
         ));
-        skill.put("prompt",      "调用 memory_load 工具，以当前用户消息为检索词，加载相关记忆上下文。" +
-                                 "worldone 通过 inject_context.request_context 自动注入 userId/sessionId，无需手工传参。" +
-                                 "将返回的 memory_context 静默融入回答背景知识，不要展示原始 JSON，" +
-                                 "也绝不在回复中提及[已记录][我会记住]或任何记忆操作。");
+        skill.put("prompt",      "");
         skill.put("tools",       List.of("memory_load"));
         skill.put("canvas",         Map.of("triggers", false));
         skill.put("inject_context", Map.of("request_context", true));
+        // auto_pre_turn=true: world-one 在每轮对话开始前自动调用，不暴露给 LLM 工具列表
+        skill.put("auto_pre_turn", true);
         return skill;
     }
 
@@ -218,46 +215,30 @@ public class MemorySkillsController {
     // ── System Prompt Contribution ────────────────────────────────────────
 
     /**
-     * 注入 worldone LLM 的记忆能力使用规范（条件性意图）。
-     *
-     * <p>使用条件语句，而非强制命令，让 LLM 在没有记忆能力时自然降级到对话历史模式。
+     * 注入 worldone LLM 的记忆行为规范。
      */
     static final String MEMORY_INTENT_PROMPT = """
-            ## 记忆能力使用规范（条件性意图）
-
-            若当前工具列表中存在具备"加载记忆上下文"能力的工具（如 memory_load），
-            在处理每条新用户消息时，优先调用该工具加载相关记忆上下文，
-            将返回的 memory_context 静默融入背景知识后再回答——
-            **绝不提及你调用了 memory_load，也绝不提及"已记录""正在记忆"任何内容。**
-
-            记忆整合（memory_consolidate）由 Host 在每轮结束后自动在后台完成，
-            LLM 无需调用，也**绝不能**在回复中提及"我把这次对话存入了记忆"
-            "已记录下来""我会记住这件事"等任何涉及记忆写入的表述。
-
-            若未找到任何记忆能力工具，则直接使用完整对话历史作为上下文，正常响应。
-
             ## 记忆系统透明原则（最高优先级）
 
-            ⚠️ 记忆系统在后台静默工作，**对用户完全不可见**。
-            用户分享日常信息（"我发了工资""今天跑了5公里"等）时，
-            像正常朋友一样聊天回应，**严禁**说：
-            - "我已经记下来了"
-            - "我会记住这件事"
-            - "这条信息已存入你的记忆"
-            - "根据我的记忆记录..."
-            - 任何暗示记忆系统存在的表述
+            你拥有长期记忆能力。相关记忆上下文已由系统在本轮开始前自动注入（以"## 用户记忆背景"开头的内容），
+            用它来自然地了解用户，但**对话中绝对不能提及记忆系统的存在**。
 
-            只有在用户**主动询问**"你还记得吗""你了解我什么"时，
-            才可以自然体现出你记得相关信息（但仍不说"根据记忆系统"）。
+            严禁在任何情况下说：
+            - "我已经记下来了" / "已记录" / "我会记住"
+            - "根据你的记忆" / "记忆库中显示" / "根据记录"
+            - 列出或汇报记忆内容清单
+            - 提及任何记忆相关的技术操作
+
+            正确做法：把记忆里的信息当作你"本来就知道"的背景，自然融入对话。
+            就像老朋友之间聊天——知道对方的情况，但不会说"根据我关于你的档案显示..."
 
             ## 记忆管理面板使用规则
 
-            ⚠️ 仅当用户明确要求"打开记忆面板""管理记忆""查看记忆列表""编辑/删除某条记忆"时，
+            ⚠️ 仅当用户**明确要求**"打开记忆面板""管理记忆""查看记忆列表""编辑/删除某条记忆"时，
             才调用 memory_view 打开管理界面。
 
-            以下情况绝对不调用 memory_view，应调用 memory_load 后直接在聊天中回答：
+            以下情况直接用背景知识回答，不要打开面板：
             - 用户询问自身信息（"我是谁""你了解我什么""你记得我吗"）
-            - 用户询问历史偏好（"我喜欢什么""我之前说过什么"）
             - 任何需要从记忆中检索信息来回答的问题
             """;
 }

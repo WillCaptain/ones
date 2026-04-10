@@ -52,6 +52,8 @@ public final class GenericAgentLoop {
     private String sessionEntryPrompt = null;
     /** workspaceId = canvas world ID；canvas 模式下由 WorldOneChatController 注入。 */
     private String workspaceId        = null;
+    /** 当前轮次的记忆上下文（preLoadMemoryContext 自动注入，每轮更新）。 */
+    private volatile String currentTurnMemoryContext = null;
     /** human-readable workspace title，用于注入 consolidation prompt。 */
     private String workspaceTitle     = null;
     /** 本轮临时 UI 上下文提示（最高优先级，不进入 history，仅作用于当前 chat() 调用）。 */
@@ -187,6 +189,9 @@ public final class GenericAgentLoop {
         this.currentTurnHints = uiHints != null ? uiHints : List.of();
         history.add(Map.of("role", "user", "content", userMessage));
 
+        // ── Host 自动预加载记忆上下文（auto_pre_turn skills，不经 LLM）──────────
+        preLoadMemoryContext(userMessage);
+
         List<Map<String, Object>> tools = registry.allSkillsAsTools();
         int turnStart = history.size() - 1;
         // Track every tool called this turn, for auto-refresh detection
@@ -194,10 +199,8 @@ public final class GenericAgentLoop {
 
         try {
             int rounds = 0;
-            boolean toolCalledAtLeastOnce = false;
             while (rounds++ < MAX_TOOL_ROUNDS) {
                 String effectiveToolsJson = mergeCanvasTools(tools);
-                String toolChoice = toolCalledAtLeastOnce ? "auto" : "required";
 
                 // Always stream tokens so markdown renders incrementally from first token
                 Consumer<String> textCallback     = token   -> emit.accept(ChatEvent.textToken(token));
@@ -205,13 +208,12 @@ public final class GenericAgentLoop {
 
                 LLMCaller.LLMResponse resp = llm.callStream(
                         contextWindow(), effectiveToolsJson,
-                        LLMCaller.DEFAULT_MAX_TOKENS_TOOLS, toolChoice,
+                        LLMCaller.DEFAULT_MAX_TOKENS_TOOLS, "auto",
                         textCallback, thinkingCallback);
 
                 // ── 工具调用 ──────────────────────────────────────────────
                 if ("tool_calls".equals(resp.finishReason()) && !resp.toolCalls().isEmpty()) {
                     history.add(resp.rawAssistantMessage());
-                    toolCalledAtLeastOnce = true;
 
                     // Snapshot current turn for potential turn_messages injection
                     List<Map<String, Object>> turnSnapshot =
@@ -277,6 +279,12 @@ public final class GenericAgentLoop {
      */
     private List<Map<String, Object>> contextWindow() {
         String sysContent = (String) history.get(0).get("content");
+
+        // ── 记忆上下文（Layer 0，隐式背景知识，最先注入）────────────────────────
+        if (currentTurnMemoryContext != null && !currentTurnMemoryContext.isBlank()) {
+            sysContent = "## 用户记忆背景（内部参考，绝对不要向用户提及或列出）\n"
+                    + currentTurnMemoryContext + "\n\n---\n" + sysContent;
+        }
 
         // ── 最高优先级：本轮 UI 上下文（覆盖任何其他指令）──────────────────
         if (!currentTurnHints.isEmpty()) {
@@ -568,6 +576,52 @@ public final class GenericAgentLoop {
      * Host 自动补一次 world_get_design 以保持 ontology canvas 同步。
      * Decisions / Actions tab 由各工具自身的 canvas patch 负责刷新，无需额外处理。
      */
+
+    /**
+     * Host 自动预加载记忆上下文（auto_pre_turn=true 的 skill，如 memory_load）。
+     *
+     * <p>在每轮对话开始、LLM 调用前执行，将结果存入 {@code currentTurnMemoryContext}，
+     * 由 {@code contextWindow()} 注入为隐藏的系统背景。LLM 永远看不到 memory_load 工具。
+     */
+    private void preLoadMemoryContext(String userMessage) {
+        currentTurnMemoryContext = null;
+        var preTurnSkills = registry.getAutoPreTurnSkills();
+        if (preTurnSkills.isEmpty()) return;
+
+        for (var entry : preTurnSkills) {
+            AppRegistration app       = entry.getKey();
+            Map<String, Object> skill = entry.getValue();
+            String toolName = ((List<?>) skill.getOrDefault("tools", List.of()))
+                    .stream().findFirst().map(Object::toString).orElse(null);
+            if (toolName == null) continue;
+
+            try {
+                String url = app.toolUrl(toolName);
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("args", Map.of("user_message", userMessage != null ? userMessage : ""));
+                body.put("_context", Map.of(
+                    "userId",         userId,
+                    "sessionId",      sessionId,
+                    "workspaceId",    workspaceId != null ? workspaceId : "",
+                    "agentId",        "worldone"
+                ));
+                HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(15))
+                    .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
+                    .build();
+                HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+                JsonNode root = JSON.readTree(resp.body());
+                String ctx = root.path("memory_context").asText("");
+                if (!ctx.isBlank()) {
+                    currentTurnMemoryContext = ctx;
+                    log.debug("[MemoryPreLoad] Loaded {} chars for session={}", ctx.length(), sessionId);
+                }
+            } catch (Exception e) {
+                log.debug("[MemoryPreLoad] Skipped ({}): {}", toolName, e.getMessage());
+            }
+        }
+    }
 
     /**
      * Host 后台记忆整合：在每轮对话结束后异步调用 memory_consolidate（background skill），

@@ -198,17 +198,35 @@ public class AppRegistry {
     }
 
     /** 聚合所有 app 的 skills，返回 OpenAI function-call 格式列表。
-     *  background=true 的 skill 由 host 自动调用，不暴露给 LLM。*/
+     *  background=true 和 auto_pre_turn=true 的 skill 由 host 自动调用，不暴露给 LLM。*/
     public List<Map<String, Object>> allSkillsAsTools() {
         List<Map<String, Object>> tools = new ArrayList<>();
         for (AppRegistration app : registry.values()) {
             for (Map<String, Object> skill : app.skills()) {
-                if (!Boolean.TRUE.equals(skill.get("background"))) {
+                if (!Boolean.TRUE.equals(skill.get("background"))
+                        && !Boolean.TRUE.equals(skill.get("auto_pre_turn"))) {
                     tools.add(skill);
                 }
             }
         }
         return tools;
+    }
+
+    /**
+     * 返回标记了 auto_pre_turn=true 的 skill（如 memory_load），
+     * 用于 host 在每轮对话开始前自动调用并注入上下文。
+     * 返回 [app, skill] pair，便于获取 URL。
+     */
+    public List<Map.Entry<AppRegistration, Map<String, Object>>> getAutoPreTurnSkills() {
+        List<Map.Entry<AppRegistration, Map<String, Object>>> result = new ArrayList<>();
+        for (AppRegistration app : registry.values()) {
+            for (Map<String, Object> skill : app.skills()) {
+                if (Boolean.TRUE.equals(skill.get("auto_pre_turn"))) {
+                    result.add(Map.entry(app, skill));
+                }
+            }
+        }
+        return result;
     }
 
     /**
