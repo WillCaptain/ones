@@ -1,0 +1,406 @@
+package org.twelve.memoryone.tools;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import org.twelve.memoryone.loader.DefaultMemoryLoader;
+import org.twelve.memoryone.loader.MemoryLoadResult;
+import org.twelve.memoryone.model.*;
+import org.twelve.memoryone.query.MemoryQuery;
+import org.twelve.memoryone.store.JdbcMemoryStore;
+
+import java.time.Instant;
+import java.util.*;
+
+/**
+ * Memory 管理工具实现。
+ *
+ * <p>被 {@link org.twelve.memoryone.api.MemoryToolsController} 暴露为
+ * {@code POST /api/tools/memory_*} 端点。
+ */
+@Component
+public class MemoryTools {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final String DELETED_MARKER = "__deleted__";
+    private static final String DEFAULT_AGENT_ID = "memory-one";
+    private static final String DEFAULT_USER_ID  = "default";
+
+    @Autowired private JdbcMemoryStore     store;
+    @Autowired private DefaultMemoryLoader loader;
+    @Autowired private org.twelve.memoryone.db.MemoryRepository repo;
+
+    // ── memory_load ───────────────────────────────────────────────────────
+
+    /**
+     * 加载当前对话相关的记忆上下文。
+     * worldone 通过 _context 注入 userId、sessionId；
+     * LLM 通过 args 传入 user_message（用于检索相关性）。
+     *
+     * @return {"ok": true, "memory_context": "## Agent Memory\n...", "memory_ids": [...]}
+     */
+    public Map<String, Object> load(Map<String, Object> args, Map<String, Object> context) {
+        String userId      = ctxOrArg(context, args, "userId",      "user_id",       DEFAULT_USER_ID);
+        String sessionId   = ctxOrArg(context, args, "sessionId",   "session_id",    null);
+        String workspaceId = ctxOrArg(context, args, "workspaceId", "workspace_id",  null);
+        String agentId     = ctxOrArg(context, args, "agentId",     "agent_id",      DEFAULT_AGENT_ID);
+        String userMsg     = str(args, "user_message", "");
+
+        MemoryLoadResult result = loader.loadWithIds(userId, agentId, sessionId, workspaceId, userMsg);
+
+        return Map.of(
+            "ok",             true,
+            "memory_context", result.isEmpty() ? "" : result.injectionText(),
+            "memory_ids",     result.loadedIds().stream().map(UUID::toString).toList()
+        );
+    }
+
+    // ── memory_query ──────────────────────────────────────────────────────
+
+    public Map<String, Object> query(Map<String, Object> args, Map<String, Object> context) {
+        String agentId     = ctxOrArg(context, args, "agentId",     "agent_id",     DEFAULT_AGENT_ID);
+        String userId      = ctxOrArg(context, args, "userId",      "user_id",      DEFAULT_USER_ID);
+        String sessionId   = ctxOrArg(context, args, "sessionId",   "session_id",   null);
+        String workspaceId = ctxOrArg(context, args, "workspaceId", "workspace_id", null);
+        boolean forManager = boolVal(args, "for_manager", false);
+        String keyword     = str(args, "keyword",  null);
+        String typeStr     = str(args, "type",     null);
+        String scopeStr    = str(args, "scope",    null);
+        int    limit       = intVal(args, "limit", 50);
+        float  minImp      = floatVal(args, "min_importance", 0f);
+
+        List<Memory> memories;
+        if (forManager) {
+            // Memory manager panel should show all user-owned active memories
+            // across all sessions/workspaces for explicit administration.
+            memories = repo.findAllActiveForUser(agentId, userId, Instant.now())
+                    .stream()
+                    .map(e -> store.findById(UUID.fromString(e.getId())).orElse(null))
+                    .filter(Objects::nonNull)
+                    .toList();
+        } else {
+            MemoryQuery.Builder qb = MemoryQuery.forAgent(agentId)
+                    .userId(userId)
+                    .session(sessionId)
+                    .workspace(workspaceId)
+                    .limit(limit)
+                    .minImportance(minImp);
+
+            if (typeStr  != null) qb = qb.types(MemoryType.valueOf(typeStr.toUpperCase()));
+            if (scopeStr != null) qb = qb.scopes(MemoryScope.valueOf(scopeStr.toUpperCase()));
+            if (keyword  != null) qb = qb.textSearch(keyword);
+            memories = store.query(qb.build());
+        }
+        return Map.of("ok", true, "count", memories.size(),
+                      "memories", memories.stream().map(this::memoryToMap).toList());
+    }
+
+    // ── memory_create ─────────────────────────────────────────────────────
+
+    public Map<String, Object> create(Map<String, Object> args, Map<String, Object> context) {
+        String agentId     = ctxOrArg(context, args, "agentId",     "agent_id",   DEFAULT_AGENT_ID);
+        String userId      = ctxOrArg(context, args, "userId",      "user_id",    DEFAULT_USER_ID);
+        String content     = str(args, "content",  null);
+        String typeStr     = str(args, "type",     "SEMANTIC");
+        String scopeStr    = str(args, "scope",    "GLOBAL");
+        float  importance  = floatVal(args, "importance", 0.7f);
+
+        if (content == null || content.isBlank()) return error("content is required");
+
+        @SuppressWarnings("unchecked")
+        List<String> tags = args.get("tags") instanceof List<?> tl ? (List<String>) tl : List.of();
+
+        // Normalize: handle both RELATIONAL (legacy) and RELATION
+        if ("RELATIONAL".equalsIgnoreCase(typeStr)) typeStr = "RELATION";
+        MemoryType  type  = MemoryType.valueOf(typeStr.toUpperCase());
+        MemoryScope scope = MemoryScope.valueOf(scopeStr.toUpperCase());
+
+        // RELATION triple fields
+        String subjectEntity = str(args, "subject_entity", null);
+        String predicate     = str(args, "predicate", null);
+        String objectEntity  = str(args, "object_entity", null);
+
+        // RELATION type: lower confidence default (hallucination risk)
+        float conf = type == MemoryType.RELATION ? 0.65f : 1.0f;
+
+        // Scope-specific IDs from context
+        String sessionId   = scope == MemoryScope.SESSION   ? ctxOrArg(context, args, "sessionId",   "session_id",   null) : null;
+        String workspaceId = scope == MemoryScope.WORKSPACE ? ctxOrArg(context, args, "workspaceId", "workspace_id", null) : null;
+
+        Instant now = Instant.now();
+        Memory m = new Memory(
+            UUID.randomUUID(), type, scope, agentId, userId, workspaceId,
+            sessionId,
+            content, null, tags,
+            importance, conf, MemorySource.USER_STATED, MemoryHorizon.MEDIUM_TERM,
+            subjectEntity, predicate, objectEntity,
+            now, now, now, 0, null,
+            null, List.of(), List.of(), List.of()
+        );
+        store.save(m);
+        return Map.of("ok", true, "memory", memoryToMap(m));
+    }
+
+    // ── memory_update ─────────────────────────────────────────────────────
+
+    public Map<String, Object> update(Map<String, Object> args, Map<String, Object> context) {
+        String idStr = str(args, "id", null);
+        if (idStr == null) return error("id is required");
+
+        Optional<Memory> opt = store.findById(UUID.fromString(idStr));
+        if (opt.isEmpty()) return error("Memory not found: " + idStr);
+
+        Memory old = opt.get();
+        String newContent    = str(args, "content", null);
+        Float  newImportance = args.containsKey("importance")
+                ? ((Number) args.get("importance")).floatValue() : null;
+        @SuppressWarnings("unchecked")
+        List<String> newTags = args.get("tags") instanceof List<?> tl ? (List<String>) tl : null;
+
+        // Allow changing type (except for RELATION — structure is different)
+        MemoryType newType = null;
+        String typeStr = str(args, "type", null);
+        if (typeStr != null) {
+            try {
+                MemoryType parsed = MemoryType.valueOf(typeStr.toUpperCase());
+                // Disallow converting to/from RELATION type
+                if (parsed != MemoryType.RELATION && old.type() != MemoryType.RELATION) {
+                    newType = parsed;
+                }
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        // Allow changing horizon
+        MemoryHorizon newHorizon = null;
+        String horizonStr = str(args, "horizon", null);
+        if (horizonStr != null) {
+            try { newHorizon = MemoryHorizon.valueOf(horizonStr.toUpperCase()); }
+            catch (IllegalArgumentException ignored) {}
+        }
+
+        Instant now = Instant.now();
+        String newSubject   = str(args, "subject_entity", null);
+        String newPredicate = str(args, "predicate",      null);
+        String newObject    = str(args, "object_entity",  null);
+        Memory updated = new Memory(
+            UUID.randomUUID(),
+            newType    != null ? newType    : old.type(),
+            old.scope(),
+            old.agentId(), old.userId(), old.workspaceId(), old.sessionId(),
+            newContent   != null ? newContent   : old.content(),
+            old.structured(),
+            newTags      != null ? newTags       : old.tags(),
+            newImportance != null ? newImportance : old.importance(),
+            old.confidence(), MemorySource.USER_STATED,
+            newHorizon   != null ? newHorizon   : old.horizon(),
+            newSubject   != null ? newSubject   : old.subjectEntity(),
+            newPredicate != null ? newPredicate : old.predicate(),
+            newObject    != null ? newObject    : old.objectEntity(),
+            now, now, now, 0, old.expiresAt(),
+            null, List.of(), old.linkedTo(), old.provenance()
+        );
+        store.supersede(old.id(), updated);
+        return Map.of("ok", true, "memory", memoryToMap(updated));
+    }
+
+    // ── memory_supersede ──────────────────────────────────────────────────
+
+    public Map<String, Object> supersede(Map<String, Object> args, Map<String, Object> context) {
+        String oldIdStr   = str(args, "old_id",      null);
+        String newContent = str(args, "new_content", null);
+        if (oldIdStr == null || newContent == null) return error("old_id and new_content are required");
+
+        Optional<Memory> opt = store.findById(UUID.fromString(oldIdStr));
+        if (opt.isEmpty()) return error("Memory not found: " + oldIdStr);
+
+        Memory old = opt.get();
+        Instant now = Instant.now();
+        Memory newer = new Memory(
+            UUID.randomUUID(), old.type(), old.scope(),
+            old.agentId(), old.userId(), old.workspaceId(), old.sessionId(),
+            newContent, old.structured(), old.tags(),
+            old.importance(), old.confidence(), MemorySource.USER_STATED, old.horizon(),
+            old.subjectEntity(), old.predicate(), old.objectEntity(),
+            now, now, now, 0, old.expiresAt(),
+            null, List.of(), old.linkedTo(), old.provenance()
+        );
+        store.supersede(old.id(), newer);
+        return Map.of("ok", true, "new_memory", memoryToMap(newer));
+    }
+
+    // ── memory_delete ─────────────────────────────────────────────────────
+
+    public Map<String, Object> delete(Map<String, Object> args, Map<String, Object> context) {
+        String idStr = str(args, "id", null);
+        if (idStr == null) return error("id is required");
+
+        Optional<Memory> opt = store.findById(UUID.fromString(idStr));
+        if (opt.isEmpty()) return error("Memory not found: " + idStr);
+
+        store.findById(UUID.fromString(idStr)).ifPresent(m -> {
+            UUID deletedSentinel = UUID.nameUUIDFromBytes(DELETED_MARKER.getBytes());
+            Instant now = Instant.now();
+            Memory placeholder = new Memory(
+                deletedSentinel.equals(m.id()) ? UUID.randomUUID() : deletedSentinel,
+                m.type(), m.scope(),
+                m.agentId(), m.userId(), null, null,
+                "[deleted]", null, List.of(),
+                0f, 0f, MemorySource.SYSTEM, MemoryHorizon.SHORT_TERM,
+                null, null, null,
+                now, now, now, 0, Instant.now().plusSeconds(1),
+                null, List.of(), List.of(), List.of()
+            );
+            store.supersede(m.id(), placeholder);
+        });
+        return Map.of("ok", true, "deleted_id", idStr);
+    }
+
+    // ── memory_promote ────────────────────────────────────────────────────
+
+    public Map<String, Object> promote(Map<String, Object> args, Map<String, Object> context) {
+        String idStr    = str(args, "id",        null);
+        String scopeStr = str(args, "new_scope", null);
+        if (idStr == null || scopeStr == null) return error("id and new_scope are required");
+
+        Memory promoted = store.promote(UUID.fromString(idStr), MemoryScope.valueOf(scopeStr.toUpperCase()));
+        return Map.of("ok", true, "memory", memoryToMap(promoted));
+    }
+
+    // ── memory_set_instruction ────────────────────────────────────────────
+
+    public Map<String, Object> setInstruction(Map<String, Object> args, Map<String, Object> context) {
+        String agentId   = ctxOrArg(context, args, "agentId",   "agent_id",   DEFAULT_AGENT_ID);
+        String userId    = ctxOrArg(context, args, "userId",    "user_id",    DEFAULT_USER_ID);
+        String content   = str(args, "content",  null);
+        String scopeStr  = str(args, "scope",    "GLOBAL");
+        String sessionId = ctxOrArg(context, args, "sessionId", "session_id", null);
+
+        if (content == null || content.isBlank()) return error("content is required");
+
+        MemoryScope   scope   = MemoryScope.valueOf(scopeStr.toUpperCase());
+        MemoryHorizon horizon = scope == MemoryScope.GLOBAL ? MemoryHorizon.LONG_TERM : MemoryHorizon.MEDIUM_TERM;
+
+        Instant now = Instant.now();
+        Memory m = new Memory(
+            UUID.randomUUID(),
+            MemoryType.PROCEDURAL, scope,
+            agentId, userId, null,
+            scope == MemoryScope.SESSION ? sessionId : null,
+            content, null, List.of("memory_instruction"),
+            0.95f, 1.0f, MemorySource.USER_STATED, horizon,
+            null, null, null,
+            now, now, now, 0, null,
+            null, List.of(), List.of(), List.of()
+        );
+        store.save(m);
+        return Map.of("ok", true,
+                      "message", "已记录您的记忆指令，将从下一轮对话开始生效",
+                      "memory", memoryToMap(m));
+    }
+
+    // ── memory_workspace_join ─────────────────────────────────────────────
+
+    /**
+     * Register that a user has participated in a workspace. Idempotent — creates
+     * a WORKSPACE RELATION memory only if one doesn't already exist for this
+     * user+workspaceId pair.
+     *
+     * <p>The record is: subject=userId --[contributed_to]--> object=workspaceId.
+     * This allows any agent to answer "who has edited workspace X?" via entity-
+     * anchored retrieval on the workspaceId.
+     */
+    public Map<String, Object> registerWorkspaceParticipation(Map<String, Object> args,
+                                                               Map<String, Object> context) {
+        String agentId       = ctxOrArg(context, args, "agentId",      "agent_id",       DEFAULT_AGENT_ID);
+        String userId        = ctxOrArg(context, args, "userId",       "user_id",        DEFAULT_USER_ID);
+        String workspaceId   = ctxOrArg(context, args, "workspaceId",  "workspace_id",   null);
+        String workspaceTitle = str(args, "workspace_title", workspaceId);
+
+        if (workspaceId == null || workspaceId.isBlank())
+            return error("workspace_id is required");
+
+        // Idempotency: skip if already registered
+        long existing = repo.countWorkspaceParticipation(agentId, userId, workspaceId);
+        if (existing > 0) return Map.of("ok", true, "created", false,
+                                        "message", "participation already recorded");
+
+        Instant now = Instant.now();
+        String content = userId + " 参与编辑了工作空间 " + workspaceTitle;
+        Memory m = new Memory(
+            UUID.randomUUID(), MemoryType.RELATION, MemoryScope.WORKSPACE,
+            agentId, userId, workspaceId,
+            null,          // sessionId — workspace participation is not session-bound
+            content, null, List.of("workspace_participation"),
+            0.6f, 1.0f, MemorySource.SYSTEM, MemoryHorizon.LONG_TERM,
+            userId, "contributed_to", workspaceId,
+            now, now, now, 0, null,
+            null, List.of(), List.of(), List.of()
+        );
+        store.save(m);
+        return Map.of("ok", true, "created", true, "memory", memoryToMap(m));
+    }
+
+    // ── 转换 ──────────────────────────────────────────────────────────────
+
+    public Map<String, Object> memoryToMap(Memory m) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id",            m.id().toString());
+        map.put("type",          m.type().name());
+        map.put("scope",         m.scope().name());
+        map.put("horizon",       m.horizon() != null ? m.horizon().name() : null);
+        map.put("content",       m.content());
+        map.put("importance",    m.importance());
+        map.put("confidence",    m.confidence());
+        map.put("source",        m.source().name());
+        map.put("tags",          m.tags());
+        map.put("user_id",       m.userId());
+        map.put("created_at",    m.createdAt() != null ? m.createdAt().toString() : null);
+        map.put("updated_at",    m.updatedAt() != null ? m.updatedAt().toString() : null);
+        map.put("last_accessed", m.lastAccessed() != null ? m.lastAccessed().toString() : null);
+        map.put("access_count",  m.accessCount());
+        map.put("session_id",    m.sessionId());
+        map.put("active",        m.isActive());
+        // Triple fields (populated for RELATION type)
+        if (m.subjectEntity() != null) map.put("subject_entity", m.subjectEntity());
+        if (m.predicate()     != null) map.put("predicate",      m.predicate());
+        if (m.objectEntity()  != null) map.put("object_entity",  m.objectEntity());
+        return map;
+    }
+
+    // ── 辅助 ──────────────────────────────────────────────────────────────
+
+    private static Map<String, Object> error(String msg) { return Map.of("ok", false, "error", msg); }
+
+    private static String ctx(Map<String, Object> ctx, String key, String defaultVal) {
+        if (ctx == null) return defaultVal;
+        Object v = ctx.get(key);
+        return v instanceof String s ? s : defaultVal;
+    }
+
+    private static String ctxOrArg(Map<String, Object> ctx, Map<String, Object> args,
+                                   String ctxKey, String argKey, String defaultVal) {
+        String v = ctx(ctx, ctxKey, null);
+        if (v != null) return v;
+        return str(args, argKey, defaultVal);
+    }
+
+    private static String str(Map<String, Object> m, String key, String defaultVal) {
+        Object v = m.get(key);
+        return v instanceof String s ? s : defaultVal;
+    }
+
+    private static int intVal(Map<String, Object> m, String key, int defaultVal) {
+        Object v = m.get(key);
+        return v instanceof Number n ? n.intValue() : defaultVal;
+    }
+
+    private static float floatVal(Map<String, Object> m, String key, float defaultVal) {
+        Object v = m.get(key);
+        return v instanceof Number n ? n.floatValue() : defaultVal;
+    }
+
+    private static boolean boolVal(Map<String, Object> m, String key, boolean defaultVal) {
+        Object v = m.get(key);
+        return v instanceof Boolean b ? b : defaultVal;
+    }
+}

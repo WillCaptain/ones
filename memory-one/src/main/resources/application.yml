@@ -1,0 +1,32 @@
+server:
+  port: 8091
+
+memory-one:
+  llm:
+    api-key: ${LLM_API_KEY:}
+    base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
+    model: ${LLM_MODEL:deepseek-chat}
+    timeout-seconds: 120
+    # Optional: path to a shared JSON config file that may contain apiKey/baseUrl/model.
+    # Supports ~ for home directory. Leave empty to disable.
+    shared-config-file: ${LLM_SHARED_CONFIG_FILE:~/.worldone-config.json}
+
+spring:
+  datasource:
+    url: ${MEMORY_ONE_DB_URL:${WORLDONE_DB_URL:jdbc:postgresql://localhost:5432/worldone}}
+    username: ${MEMORY_ONE_DB_USER:${WORLDONE_DB_USER:worldone}}
+    password: ${MEMORY_ONE_DB_PASS:${WORLDONE_DB_PASS:worldone}}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+
+logging:
+  level:
+    org.twelve.memoryone: INFO
+    org.hibernate.SQL: WARN

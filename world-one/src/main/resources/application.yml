@@ -1,0 +1,32 @@
+server:
+  port: 8090
+
+spring:
+  application:
+    name: world-one
+  datasource:
+    url: ${WORLDONE_DB_URL:jdbc:postgresql://localhost:5432/worldone}
+    username: ${WORLDONE_DB_USER:worldone}
+    password: ${WORLDONE_DB_PASS:worldone}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+
+world-one:
+  llm:
+    # DeepSeek (推荐): export LLM_API_KEY=sk-xxx
+    api-key: ${LLM_API_KEY:}
+    base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
+    model: ${LLM_MODEL:deepseek-chat}
+    timeout-seconds: 120
+
+logging:
+  level:
+    org.twelve.entitir: INFO
+    org.hibernate.SQL: WARN

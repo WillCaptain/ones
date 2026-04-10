@@ -1,0 +1,6 @@
+target/
+*.log
+*.pid
+deploy/worldone.jar
+deploy/server.log
+deploy/server.pid
