@@ -51,8 +51,13 @@ public class WorldOneChatController {
 
     @GetMapping("/sessions")
     public Map<String, Object> listSessions(@RequestParam(name = "all", defaultValue = "false") boolean all) {
-        List<UiSession> list = all ? uiStore.listAll() : uiStore.listActive();
-        return Map.of("sessions", list);
+        // app sessions are never included in the main 'sessions' list (they live in 'app_sessions')
+        List<UiSession> list = all
+                ? uiStore.listAll().stream().filter(s -> !s.isApp()).toList()
+                : uiStore.listActive();
+        // app sessions returned separately for frontend sessionData initialization
+        List<UiSession> apps = uiStore.listApps();
+        return Map.of("sessions", list, "app_sessions", apps);
     }
 
     /**
@@ -65,6 +70,63 @@ public class WorldOneChatController {
     public ResponseEntity<Map<String, Object>> getSessionMessages(@PathVariable("id") String id) {
         List<Map<String, Object>> msgs = messageHistory.loadHistoryForUi(id);
         return ResponseEntity.ok(Map.of("messages", msgs));
+    }
+
+    /**
+     * DELETE /api/sessions/{id}/messages — 清空该 session 的对话历史。
+     *
+     * <p>同时清除 DB 持久化记录和内存中的 GenericAgentLoop，
+     * 下次对话时将以全新 loop（含最新 system prompt）重建。
+     * 主 session（id="main"）也可清空。
+     */
+    @DeleteMapping("/sessions/{id}/messages")
+    public ResponseEntity<Map<String, Object>> clearSessionMessages(@PathVariable("id") String id) {
+        UiSession ui = uiStore.find(id);
+        if (ui == null) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "reason", "session not found"));
+        }
+        agentStore.resetSession(ui.agentSessionId());
+        return ResponseEntity.ok(Map.of("ok", true));
+    }
+
+    /**
+     * DELETE /api/sessions/{id}/messages/last?count=N
+     *
+     * <p>删除该 session 最后 N 条消息（默认 2，即一问一答）。
+     * 用于重问时从 DB 末尾移除旧记录，确保刷新后历史正确。
+     */
+    @DeleteMapping("/sessions/{id}/messages/last")
+    public ResponseEntity<Map<String, Object>> deleteLastMessages(
+            @PathVariable("id") String id,
+            @RequestParam(value = "count", defaultValue = "2") int count) {
+        UiSession ui = uiStore.find(id);
+        if (ui == null) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "reason", "session not found"));
+        }
+        // 按"最后一个 user-turn"语义删除，确保工具调用轮次（3+条）也能完整清理
+        messageHistory.deleteLastTurn(id, ui.agentSessionId());
+        agentStore.trimLastTurn(ui.agentSessionId());
+        return ResponseEntity.ok(Map.of("ok", true));
+    }
+
+    /**
+     * DELETE /api/sessions/{id}/messages/range?from=N&count=M
+     *
+     * <p>删除该 session 从第 N 条（0-based）开始的 M 条消息。
+     * 用于删除任意位置的消息（含中间消息），刷新后不再显示被删消息。
+     */
+    @DeleteMapping("/sessions/{id}/messages/range")
+    public ResponseEntity<Map<String, Object>> deleteRangeMessages(
+            @PathVariable("id") String id,
+            @RequestParam("from") int from,
+            @RequestParam(value = "count", defaultValue = "1") int count) {
+        UiSession ui = uiStore.find(id);
+        if (ui == null) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "reason", "session not found"));
+        }
+        messageHistory.deleteRange(id, ui.agentSessionId(), from, count);
+        agentStore.trimHistoryRange(ui.agentSessionId(), from, count);
+        return ResponseEntity.ok(Map.of("ok", true));
     }
 
     @PatchMapping("/sessions/{id}/complete")
@@ -146,6 +208,9 @@ public class WorldOneChatController {
         SseEmitter emitter = new SseEmitter(120_000L);
         executor.submit(() -> {
             try {
+                // Use the calling session's loop for the initial tool call (data fetch).
+                // Session routing to app-{appId} is handled by extractEvents + enrichSessionEvent
+                // via the session_type=app signal in the tool response.
                 UiSession ui = uiStore.find(uiSessionId);
                 String agentSessionId = ui != null ? ui.agentSessionId()
                         : agentStore.newSession();
@@ -174,9 +239,21 @@ public class WorldOneChatController {
                         catch (Exception ignored) {}
                     });
                 } else {
+                    // openApp without specific toolName: still needs enrichSessionEvent for SESSION events
+                    String[] currentUiId = { uiSessionId };
                     loop.openApp(appId, ev -> {
+                        ChatEvent toSend = ev;
                         if (ev.type() == org.twelve.entitir.aip.worldone.ChatEvent.Type.TEXT) return;
-                        try { emitter.send(SseEmitter.event().data(ev.toSseData())); }
+                        try {
+                            if (ev.type() == org.twelve.entitir.aip.worldone.ChatEvent.Type.SESSION) {
+                                toSend = enrichSessionEvent(ev);
+                                String newUiId = extractUiSessionId(toSend);
+                                if (newUiId != null) currentUiId[0] = newUiId;
+                            } else if (ev.type() == org.twelve.entitir.aip.worldone.ChatEvent.Type.CANVAS) {
+                                persistCanvasToSession(currentUiId[0], ev.content());
+                            }
+                            emitter.send(SseEmitter.event().data(toSend.toSseData()));
+                        }
                         catch (Exception ignored) {}
                     });
                 }
@@ -270,6 +347,11 @@ public class WorldOneChatController {
                             messageHistory.save(finalAgentSessionId, currentUiId[0], "assistant", event.content());
                             return;   // ← 不 forward 给 SSE
 
+                        } else if (event.type() == ChatEvent.Type.HTML_WIDGET) {
+                            // Widget 持久化：存 role='widget' 供刷新后恢复
+                            messageHistory.save(finalAgentSessionId, currentUiId[0], "widget", event.content());
+                            // 正常 forward 给前端，让前端渲染 iframe
+
                         } else if (event.type() == ChatEvent.Type.SESSION) {
                             // 拦截 SESSION 事件：创建新 UiSession，记录其 id 供后续 CANVAS 更新用
                             toSend = enrichSessionEvent(event);
@@ -322,11 +404,24 @@ public class WorldOneChatController {
             String type             = n.path("type").asText("task");
             String welcomeMsg       = n.path("welcome_message").asText("");
             String canvasSessionId  = n.path("canvas_session_id").asText("");
+            String appId            = n.path("app_id").asText("");
 
-            // find-or-create：若已有对应 canvas_session_id 的 UiSession，直接复用
-            UiSession existing = canvasSessionId.isBlank()
-                    ? null : uiStore.findByCanvasSessionId(canvasSessionId);
-            UiSession ui = (existing != null) ? existing : uiStore.create(type, name, agentId);
+            UiSession ui;
+            if ("app".equals(type) && !appId.isBlank()) {
+                // app session：固定 id = "app-{appId}"，幂等创建
+                ui = uiStore.ensureApp(appId, name);
+            } else {
+                // find-or-create：若已有对应 canvas_session_id 的 UiSession，直接复用
+                UiSession existing = canvasSessionId.isBlank()
+                        ? null : uiStore.findByCanvasSessionId(canvasSessionId);
+                if (existing != null) {
+                    ui = existing;
+                } else {
+                    // 每个新 task/world session 都分配独立 agent session，避免与 main 或其他世界共享 LLM 上下文
+                    String freshAgentId = agentStore.newSession();
+                    ui = uiStore.create(type, name, freshAgentId);
+                }
+            }
 
             String payload = "{\"ui_session_id\":\"" + escapeJson(ui.id())
                            + "\",\"name\":\""         + escapeJson(name)

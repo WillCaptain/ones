@@ -1,6 +1,6 @@
 # AIP Memory System — 设计文档
 
-> 版本：0.3 · 状态：实现中  
+> 版本：0.4 · 状态：实现中  
 > 参考：Generative Agents (Park et al., 2023)、MemGPT (Packer et al., 2023)、  
 > A-MEM (Xu et al., 2024)、MemoryOS (2024)、HippoRAG (2024)
 
@@ -251,17 +251,104 @@ Memory 注入（动态）：    ~1200 tokens  ← 本节
 合计上限：               ~4000 tokens（可配置）
 ```
 
-### 5.2 加载优先级
+### 5.2 两层加载策略（快照 + 动态补充）
+
+> **设计原则**：对话结束后立即 consolidate，consolidation 完成后后台生成 Global Snapshot 并缓存。  
+> 下次对话开始时 **直接加载快照**（1 次 SQL），无需全量查库。  
+> 若当轮上下文不足，LLM 可主动调用 `memory_query` 工具按需补充细节。
+
+```
+对话结束
+  └─→ [异步] consolidation（memory agent 整合本轮记忆）
+        └─→ [异步] 生成 Global Snapshot（LLM 叙述段落）→ 缓存到 DB
+                    tag=[snapshot], SUPERSEDE 旧快照
+
+下次对话开始
+  └─→ memory_load（auto_pre_turn skill，host 自动调用）
+        ├─ 有 snapshot → 注入叙述段落 + 动态补充（见 §5.3）
+        └─ 无 snapshot（首次 / 尚未生成）→ fallback：按优先级全量查库（见 §5.5）
+```
+
+### 5.3 加载内容按 Session 类型区分
+
+**主 session（conversation，无 sessionId）**
+
+```
+注入内容 = Global Snapshot（叙述段落）
+
+说明：
+- snapshot 由 LLM 生成，覆盖 GLOBAL 全5类记忆的核心要点
+- 主 session 是用户的"环境对话"，无特定任务上下文，只需全局背景
+- 无快照时 fallback 到完整查库（见 §5.5）
+```
+
+**子 session（task / event，有 sessionId）**
+
+```
+注入内容 = 纯结构化条目（不含 snapshot）
+
+  ### 全局事实
+  GLOBAL SEMANTIC   (importance ≥ 0.4, 最多20条)  ← 用户身份、偏好事实
+  GLOBAL PROCEDURAL (全量, 最多10条)               ← 全局约定、沟通规则
+  GLOBAL RELATION   (importance ≥ 0.5, 最多10条)  ← 全局关系网络
+
+  ### 任务知识                                      ← workspaceId 有值时注入
+  WORKSPACE SEMANTIC   (全量, 最多20条)             ← 当前任务的领域知识
+  WORKSPACE PROCEDURAL (全量, 最多10条)             ← 任务内操作约定
+  WORKSPACE RELATION   (全量, 最多10条)             ← 任务内实体关系（多人共享）
+
+  ### 会话上下文
+  SESSION GOAL      (全量, 最多5条, status≠COMPLETED)  ← 本次目标 ⭐
+  SESSION SEMANTIC  (全量, 最多20条)                    ← 本次临时事实
+  SESSION PROCEDURAL(全量, 最多10条)                    ← 本次约定
+  SESSION RELATION  (全量, 最多10条)                    ← 本次关系
+  SESSION EPISODIC  (score最高10条)                     ← 本次事件 ⭐
+
+  + entity-anchored 补充（userMessage 提及的实体，额外检索跨 scope 关系记忆）
+
+说明：
+- 结构化条目可精确引用（供 SUPERSEDE / GOAL_PROGRESS 等操作）
+- 不含 snapshot：子 session 不需要 GLOBAL 叙述背景，精确条目更有用
+- 子 session 中 GLOBAL EPISODIC / GLOBAL GOAL 不注入（与当前任务无关，按需用 memory_query 获取）
+```
+
+### 5.4 Global Snapshot 生成规则
+
+Snapshot 由 `LLMMemoryConsolidator` 在 consolidation 完成后**异步生成**，不阻塞对话响应。
+
+**快照源（输入给 LLM 的 GLOBAL 记忆）：**
+
+| 类型 | 门槛 | 上限 |
+|---|---|---|
+| GLOBAL SEMANTIC | importance ≥ 0.4 | 30 条 |
+| GLOBAL PROCEDURAL | 全量 | 20 条 |
+| GLOBAL RELATION | importance ≥ 0.5 | 15 条 |
+| GLOBAL GOAL | 全量（活跃目标） | 10 条 |
+| GLOBAL EPISODIC | importance ≥ 0.6 | 10 条 |
+
+**快照存储：**
+- 保存为 `tag=[snapshot]` 的 GLOBAL SEMANTIC 记忆（importance=1.0）
+- 每次生成 SUPERSEDE 旧快照（始终只有一条有效快照）
+- `JdbcMemoryStore.loadSnapshot(agentId, userId)` 取最新快照文本
+
+**快照内容约束（LLM 生成时的格式要求）：**
+- 自然语言叙述，不超过 800 字符
+- 按主题分段（身份/背景 → 约定偏好 → 关系网络 → 重要目标 → 关键事件）
+- 不重复罗列原始条目，而是形成连贯叙述
+
+### 5.5 Fallback：无快照时的全量查库规则
+
+首次启动或 snapshot 尚未生成时，退回到按优先级查库注入：
 
 **Always Load（无条件注入）**
 
 | 类型 | 条件 |
 |---|---|
 | GLOBAL SEMANTIC | importance ≥ 0.5，全量；< 0.5 且 access_count > 3 |
-| GLOBAL PROCEDURAL | 全量（数量通常不多） |
+| GLOBAL PROCEDURAL | 全量 |
 | 当前 SESSION 的 GOAL | 全量，status ≠ COMPLETED（最多 5 条） |
 | WORKSPACE RELATION | importance ≥ 0.6（当前 workspaceId 匹配） |
-| GLOBAL RELATION | confidence ≥ 0.7（结构性关系，全局成立） |
+| GLOBAL RELATION | confidence ≥ 0.7 |
 
 **Conditional Load（检索后注入）**
 
@@ -276,7 +363,7 @@ recency = exp(-λ × hours_since_access)   // λ=0.1，约7天半衰
 | GLOBAL EPISODIC | score 最高的 5 条 |
 | SESSION EPISODIC | 最近 10 条（时序优先）|
 | SESSION PROCEDURAL | 全量 |
-| SESSION RELATION | score 最高的 5 条（仅当 sessionId 匹配）|
+| SESSION RELATION | score 最高的 5 条 |
 
 **实体锚定检索（Entity-anchored）— RELATION 专用**
 
@@ -286,7 +373,6 @@ recency = exp(-λ × hours_since_access)   // λ=0.1，约7天半衰
            WHERE (scope='GLOBAL') OR (scope='WORKSPACE') OR (scope='SESSION' AND session_id=:sessionId)
            AND (subject_entity=entity OR object_entity=entity)
 ```
-优先于 Conditional Load，确保上下文中包含对话实体的关系网络。
 
 **Never Bulk Load**
 - 所有 `superseded_by != null` 的记录（已过时）
@@ -294,23 +380,32 @@ recency = exp(-λ × hours_since_access)   // λ=0.1，约7天半衰
 - expires_at < now
 - 其他 session 的 SESSION 级记忆（跨 session 隔离）
 
-### 5.3 注入格式
+### 5.6 注入格式示例
 
+**主 session（快照模式）：**
 ```
-## Agent Memory
-### 当前目标
-- [GOAL] 设计HR本体：目标10实体，已完成5个（Employee, Department...）
+## 用户记忆快照
+Will 是 AI 编程领域的超级工程师，专注于本体世界设计和实体建模。他有一只狗叫旺旺，
+认识了历史知识渊博的陈老师。偏好使用专业术语交流，要求提供深入建议。
+约定："lets edit XX" 代表进入 canvas 编辑模式。
+```
 
+**子 session（纯结构化）：**
+```
 ### 全局事实
-- [FACT] HR本体世界 session_id: abc123，phase: DESIGN
-- [FACT] 用户偏好：实体间用FK关联，不内嵌
+- [FACT] 用户是 AI 编程领域超级工程师，专注本体世界设计
+- [CONVENTION] "lets edit XX" = 进入 XX 的 canvas 编辑模式
+- [REL] Will --[has_pet]--> 旺旺
 
-### 最近事件
+### 任务知识
+- [FACT] HR本体世界 session_id: abc123，phase: DESIGN
+- [FACT] 实体间用 FK 关联，不内嵌
+- [REL] Employee --[belongs_to]--> Department
+
+### 会话上下文
+- [GOAL] 设计HR本体：目标10实体，已完成5个（Employee, Department...）
 - [EVENT 2024-01-05] 添加了 Employee 实体（name, age, gender 三个字段）
 - [EVENT 2024-01-05] 建立 Employee → Department 的 FK 关联
-
-### 约定
-- [CONVENTION] "lets edit XX" = 进入 XX 的 canvas 编辑模式
 ```
 
 ---

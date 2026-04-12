@@ -10,6 +10,7 @@ import org.twelve.entitir.aip.LLMCaller;
 import org.twelve.entitir.ontology.llm.LLMConfig;
 import org.twelve.memoryone.config.MemoryOneConfigStore;
 import org.twelve.memoryone.model.*;
+import org.twelve.memoryone.query.MemoryQuery;
 import org.twelve.memoryone.store.JdbcMemoryStore;
 import org.twelve.memoryone.loader.DefaultMemoryLoader;
 
@@ -109,6 +110,119 @@ public class LLMMemoryConsolidator {
             }
         }
         log.debug("[MemoryAgent] session={} processed {} ops", sessionId, ops.size());
+
+        // 整合完成后，异步更新 global snapshot（不阻塞当前线程）
+        generateAndCacheSnapshot(userId, agentId);
+    }
+
+    /**
+     * 整合完成后生成并缓存 memory snapshot。
+     *
+     * <p>读取该用户所有 GLOBAL 高重要性记忆，用 LLM 生成一段自然语言叙述，
+     * 存为 tag=[snapshot] 的 GLOBAL SEMANTIC 记忆（SUPERSEDE 旧快照）。
+     * 下次 memory_load 时直接读此快照，无需遍历全量记忆条目。
+     */
+    private void generateAndCacheSnapshot(String userId, String agentId) {
+        try {
+            // ── 收集 GLOBAL 记忆作为快照源 ────────────────────────────────────
+            // SEMANTIC：门槛 0.4（宁多勿缺，身份/事实类）
+            // PROCEDURAL：全部（沟通约定、偏好——永久生效）
+            // RELATION：门槛 0.5（确认度较高的关系）
+            // GOAL：全部活跃目标（superseded 的已被过滤）
+            // EPISODIC：门槛 0.6（重要人生事件，非日常流水）
+            List<Memory> globals = new ArrayList<>();
+            globals.addAll(loadType(userId, agentId, MemoryType.SEMANTIC,   MemoryScope.GLOBAL, 0.4f, 30));
+            globals.addAll(loadType(userId, agentId, MemoryType.PROCEDURAL, MemoryScope.GLOBAL, 0f,   20));
+            globals.addAll(loadType(userId, agentId, MemoryType.RELATION,   MemoryScope.GLOBAL, 0.5f, 15));
+            globals.addAll(loadType(userId, agentId, MemoryType.GOAL,       MemoryScope.GLOBAL, 0f,   10));
+            globals.addAll(loadType(userId, agentId, MemoryType.EPISODIC,   MemoryScope.GLOBAL, 0.6f, 10));
+
+            if (globals.isEmpty()) {
+                log.debug("[MemorySnapshot] No global memories for userId={}, skip snapshot", userId);
+                return;
+            }
+
+            String snapshotText = callLlmForSnapshot(globals);
+            if (snapshotText == null || snapshotText.isBlank()) return;
+
+            // 把旧 snapshot 标记为 superseded，保存新快照
+            Instant now = Instant.now();
+            Memory newSnapshot = new Memory(
+                UUID.randomUUID(), MemoryType.SEMANTIC, MemoryScope.GLOBAL,
+                agentId, userId, null, null,
+                snapshotText, null, List.of("snapshot"),
+                1.0f, 1.0f, MemorySource.INFERRED, MemoryHorizon.LONG_TERM,
+                null, null, null,
+                now, now, now, 0, null,
+                null, List.of(), List.of(), List.of()
+            );
+
+            // Supersede previous snapshot if exists, otherwise save fresh
+            Optional<UUID> oldSnapshotId = store.findSnapshotId(agentId, userId);
+            if (oldSnapshotId.isPresent()) {
+                store.supersede(oldSnapshotId.get(), newSnapshot);
+            } else {
+                store.save(newSnapshot);
+            }
+            log.debug("[MemorySnapshot] Snapshot updated for userId={}, {} chars", userId, snapshotText.length());
+
+        } catch (Exception e) {
+            log.warn("[MemorySnapshot] Failed to generate snapshot for userId={}: {}", userId, e.getMessage());
+        }
+    }
+
+    private List<Memory> loadType(String userId, String agentId, MemoryType type, MemoryScope scope,
+                                  float minImportance, int limit) {
+        return store.query(MemoryQuery.forAgent(agentId)
+                .userId(userId)
+                .types(type)
+                .scopes(scope)
+                .minImportance(minImportance)
+                .limit(limit)
+                .build());
+    }
+
+    private String callLlmForSnapshot(List<Memory> memories) throws Exception {
+        // 按类型分组，构造简洁的输入文本
+        StringBuilder input = new StringBuilder();
+        Map<MemoryType, List<Memory>> byType = memories.stream()
+                .collect(java.util.stream.Collectors.groupingBy(Memory::type));
+
+        appendSnapshotSection(input, "事实/身份", byType.get(MemoryType.SEMANTIC));
+        appendSnapshotSection(input, "约定/偏好", byType.get(MemoryType.PROCEDURAL));
+        appendSnapshotSection(input, "关系",     byType.get(MemoryType.RELATION));
+        appendSnapshotSection(input, "活跃目标", byType.get(MemoryType.GOAL));
+        appendSnapshotSection(input, "重要经历", byType.get(MemoryType.EPISODIC));
+
+        String systemPrompt = """
+                你是一个记忆整理助手。根据以下用户的记忆条目，写一段简洁自然的第三人称叙述（100-300字），
+                总结你对这个用户的了解，就像朋友的私人笔记。
+                需要涵盖：身份/事实、人际关系、沟通约定与偏好、当前活跃目标、重要经历。
+                只包含已知事实，不要添加推断、建议或评论。用流畅的中文叙述，不要用列表格式。
+                """;
+
+        List<Map<String, Object>> messages = List.of(
+            Map.of("role", "system", "content", systemPrompt),
+            Map.of("role", "user",   "content", "## 记忆条目\n" + input)
+        );
+
+        LLMCaller llm = new LLMCaller(buildLlmConfig());
+        LLMCaller.LLMResponse resp = llm.callTextOnly(messages, 512);
+        String text = resp.content();
+        return (text == null || text.isBlank()) ? null : text.trim();
+    }
+
+    private void appendSnapshotSection(StringBuilder sb, String title, List<Memory> items) {
+        if (items == null || items.isEmpty()) return;
+        sb.append("【").append(title).append("】\n");
+        for (Memory m : items) {
+            if (m.type() == MemoryType.RELATION && m.subjectEntity() != null && m.predicate() != null) {
+                sb.append("- ").append(m.subjectEntity()).append(" ").append(m.predicate())
+                  .append(" ").append(m.objectEntity()).append("\n");
+            } else {
+                sb.append("- ").append(m.content()).append("\n");
+            }
+        }
     }
 
     private void executeOp(String userId, String agentId, String sessionId, String workspaceId,

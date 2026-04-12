@@ -11,4 +11,10 @@ public interface SessionMessageRepository extends JpaRepository<SessionMessageEn
 
     /** 按时间顺序返回某 ui session 的消息（UI 面板展示用）。 */
     List<SessionMessageEntity> findByUiSessionIdOrderByCreatedAtAsc(String uiSessionId);
+
+    /** 删除某 agent session 的全部消息（清空对话历史）。 */
+    void deleteByAgentSessionId(String agentSessionId);
+
+    /** 按时间倒序返回某 ui session 的最后 N 条消息（用于重问时删除旧记录）。 */
+    List<SessionMessageEntity> findTopNByUiSessionIdOrderByCreatedAtDesc(String uiSessionId);
 }

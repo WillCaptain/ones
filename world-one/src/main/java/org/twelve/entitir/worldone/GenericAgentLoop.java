@@ -38,8 +38,17 @@ public final class GenericAgentLoop {
     private static final Logger log = LoggerFactory.getLogger(GenericAgentLoop.class);
     private static final int MAX_TOOL_ROUNDS = 10;
     /** LLM 上下文窗口大小。 */
-    private static final int CONTEXT_WINDOW  = 40;
+    private static final int CONTEXT_WINDOW  = 30;
     private static final ObjectMapper JSON = new ObjectMapper();
+
+    /**
+     * 若 assistant 纯文本消息（无工具调用）包含这些"操作已完成"短语，
+     * 极可能是幻觉响应，在组装 contextWindow 时替换为安全占位文本。
+     */
+    private static final Set<String> HALLUCINATION_PHRASES = Set.of(
+            "已删除", "删除成功", "已清除", "清除成功",
+            "已创建", "创建成功", "已完成操作", "已成功删除",
+            "已更新", "更新成功", "已修改", "修改成功");
 
     private final String      sessionId;
     private final String      userId;
@@ -78,6 +87,36 @@ public final class GenericAgentLoop {
     /** 从持久化存储恢复历史消息（重启后重建对话上下文时调用）。 */
     public void restoreHistory(List<Map<String, Object>> messages) {
         history.addAll(messages);
+    }
+
+    /** 从内存历史末尾截掉最后 n 条（重问时与 DB 删除同步）。 */
+    public void trimHistory(int n) {
+        trimHistoryRange(-1, n);
+    }
+
+    /** 从内存历史中删除从第 from 条（0-based）开始共 count 条。from=-1 时从末尾删。 */
+    public void trimHistoryRange(int from, int count) {
+        int size = history.size();
+        if (size == 0 || count <= 0) return;
+        int start = (from < 0) ? Math.max(0, size - count) : Math.min(from, size);
+        int end   = Math.min(start + count, size);
+        if (start < end) history.subList(start, end).clear();
+    }
+
+    /**
+     * 删除最后一个完整 user-turn（从最后一条 user 消息到末尾）。
+     * 适用于重问清理：不管工具调用了几次，总能完整移除本轮上下文。
+     */
+    public void trimLastTurn() {
+        // 找最后一条 role=user 的位置，从那里删到末尾
+        // 注意：history[0] 是 system prompt，不参与查找
+        for (int i = history.size() - 1; i >= 1; i--) {
+            Object role = history.get(i).get("role");
+            if ("user".equals(role)) {
+                history.subList(i, history.size()).clear();
+                return;
+            }
+        }
     }
 
     /** 恢复 canvas 模式（服务重启后由 WorldOneChatController 调用）。 */
@@ -219,11 +258,15 @@ public final class GenericAgentLoop {
                     List<Map<String, Object>> turnSnapshot =
                             new ArrayList<>(history.subList(turnStart, history.size()));
 
+                    boolean awaitingConfirmation = false;
+                    boolean htmlWidgetRendered  = false;
                     for (LLMCaller.ToolCall tc : resp.toolCalls()) {
                         emit.accept(ChatEvent.toolCall(tc.name()));
                         toolsCalledThisTurn.add(tc.name());
 
                         String toolResult = callToolViaHttp(tc, turnSnapshot);
+                        log.info("[ToolCall] tool={} args={}", tc.name(), tc.arguments());
+                        log.info("[ToolResult] tool={} result={}", tc.name(), toolResult.length() > 500 ? toolResult.substring(0, 500) + "…" : toolResult);
 
                         Map<String, Object> toolMsg = new LinkedHashMap<>();
                         toolMsg.put("role",         "tool");
@@ -233,6 +276,42 @@ public final class GenericAgentLoop {
                         history.add(toolMsg);
 
                         extractEvents(toolResult, tc.name(), emit);
+
+                        // html_widget：widget 已渲染到对话，本轮就此结束，
+                        // 不再让 LLM 续写文字（否则文字会覆盖 widget）
+                        if (isHtmlWidget(toolResult)) {
+                            htmlWidgetRendered = true;
+                        }
+
+                        // sys.* 确认框：操作挂起，等待用户点击，Host 直接给出提示语，
+                        // 不再让 LLM 继续一轮（否则 LLM 会误以为操作已完成）
+                        boolean needsConfirm = requiresUserConfirmation(toolResult);
+                        log.info("[ConfirmCheck] tool={} requiresUserConfirmation={}", tc.name(), needsConfirm);
+                        if (needsConfirm) {
+                            awaitingConfirmation = true;
+                        }
+                    }
+                    if (htmlWidgetRendered) {
+                        // Widget 已渲染到 UI。
+                        // 将 history 里本轮的 tool_call + tool_result 替换为一条简短的
+                        // assistant 文字，避免 LLM 在后续对话中认为 widget 仍在屏幕上
+                        // 并直接用文字描述，而不是重新调用工具。
+                        // 替换范围：history 从 turnStart+1（rawAssistantMessage）到末尾
+                        if (history.size() > turnStart + 1) {
+                            history.subList(turnStart + 1, history.size()).clear();
+                        }
+                        history.add(Map.of("role", "assistant",
+                                "content", "[已在界面上打开了对应的面板]"));
+                        break;
+                    }
+                    if (awaitingConfirmation) {
+                        String confirmMsg = "请在上方确认框中确认操作。";
+                        history.add(Map.of("role", "assistant", "content", confirmMsg));
+                        // ChatEvent.TEXT 被 Controller 拦截持久化但不转发给 SSE，
+                        // 需要用 TEXT_TOKEN 流式方式推送到前端，再用 TEXT 持久化
+                        emit.accept(ChatEvent.textToken(confirmMsg));
+                        emit.accept(ChatEvent.text(confirmMsg));
+                        break;
                     }
                     continue;
                 }
@@ -278,7 +357,9 @@ public final class GenericAgentLoop {
      * </ol>
      */
     private List<Map<String, Object>> contextWindow() {
-        String sysContent = (String) history.get(0).get("content");
+        // Layer 1 每轮动态构建：确保新注册的 builtin app system prompt 立即生效，
+        // 不依赖 session 创建时的快照（history.get(0) 仅作初始占位，不再直接使用）。
+        String sysContent = registry.aggregatedSystemPrompt();
 
         // ── 记忆上下文（Layer 0，隐式背景知识，最先注入）────────────────────────
         if (currentTurnMemoryContext != null && !currentTurnMemoryContext.isBlank()) {
@@ -301,17 +382,27 @@ public final class GenericAgentLoop {
 
         if (activeWidgetType != null) {
             String widgetCtx = registry.widgetContextPrompt(activeWidgetType);
+            // 注入当前工作区标识（每轮动态计算，不进入 history），让 LLM 始终知道自己在哪个世界
+            String wsContext = "";
+            if (workspaceId != null && !workspaceId.isBlank()) {
+                wsContext = "**当前世界**：" + (workspaceTitle != null ? workspaceTitle : workspaceId)
+                          + "（session_id: " + workspaceId + "）\n"
+                          + "session_id 已自动绑定，所有 world_* 工具调用无需提供 session_id。\n";
+            }
             if (widgetCtx != null && !widgetCtx.isBlank()) {
                 sysContent = sysContent
                     + "\n\n---\n## 当前 Canvas 模式：" + activeWidgetType + "\n"
+                    + wsContext
                     + widgetCtx;
+            } else if (!wsContext.isBlank()) {
+                sysContent = sysContent + "\n\n---\n" + wsContext;
             }
         }
 
         List<Map<String, Object>> ctx = new ArrayList<>();
         ctx.add(Map.of("role", "system", "content", sysContent));
 
-        List<Map<String, Object>> rest = history.subList(1, history.size());
+        List<Map<String, Object>> rest = sanitizeHistory(history.subList(1, history.size()));
         if (rest.size() <= CONTEXT_WINDOW) {
             ctx.addAll(rest);
         } else {
@@ -467,18 +558,24 @@ public final class GenericAgentLoop {
 
             } else if (widgetType != null) {
                 // 打开已有世界（无 new_session）：同样需要 session 事件，以便前端
-                // 切换到对应 task session 并显示欢迎语
+                // 切换到对应 task/app session 并显示欢迎语
+                String sessionType = root.path("session_type").asText("task");
+                String appId       = root.path("app_id").asText("");
+                // app session 的 agent_session_id 固定为 "app-{appId}"，确保上下文隔离
+                String agentIdForSession = ("app".equals(sessionType) && !appId.isBlank())
+                        ? "app-" + appId : sessionId;
                 String welcome   = registry.widgetWelcomeMessage(widgetType);
                 String payload   = "{\"name\":\""               + escapeJson(worldName)
-                                 + "\",\"type\":\"task"
-                                 + "\",\"agent_session_id\":\"" + escapeJson(sessionId)
+                                 + "\",\"type\":\""             + escapeJson(sessionType)
+                                 + "\",\"agent_session_id\":\"" + escapeJson(agentIdForSession)
                                  + (welcome != null ? "\",\"welcome_message\":\"" + escapeJson(welcome) : "")
-                                 + (!canvasSessionIdForPayload.isBlank()
+                                 + (!"app".equals(sessionType) && !canvasSessionIdForPayload.isBlank()
                                      ? "\",\"canvas_session_id\":\"" + escapeJson(canvasSessionIdForPayload) : "")
+                                 + (!appId.isBlank() ? "\",\"app_id\":\"" + escapeJson(appId) : "")
                                  + "\"}";
                 emit.accept(ChatEvent.session(payload));
 
-                String entryPrompt = welcome != null ? welcome : registry.sessionEntryPrompt("task");
+                String entryPrompt = welcome != null ? welcome : registry.sessionEntryPrompt(sessionType);
                 if (entryPrompt != null && this.sessionEntryPrompt == null) {
                     this.sessionEntryPrompt = entryPrompt;
                 }
@@ -519,12 +616,14 @@ public final class GenericAgentLoop {
 
                 if ("close".equals(action)) {
                     activeWidgetType = null;
-                } else if (!wType.isBlank()) {
+                } else if (!wType.isBlank() && !wType.startsWith("sys.")) {
+                    // sys.* 是覆盖层/inline card，不改变当前 canvas widget
                     activeWidgetType = wType;
                 }
 
                 // 对 open/replace 命令补发 session 事件，以便前端创建任务条目
-                if (("open".equals(action) || "replace".equals(action)) && !wType.isBlank()) {
+                if (("open".equals(action) || "replace".equals(action)) && !wType.isBlank()
+                        && !wType.startsWith("sys.")) {  // sys.* 不创建 session，不切换模式
                     String sessionIdVal = canvas.path("session_id").asText("");
                     String canvasWorldName = root.path("session_name").asText("");
                     if (canvasWorldName.isBlank()) canvasWorldName = root.path("session_id").asText("");
@@ -687,5 +786,99 @@ public final class GenericAgentLoop {
 
     private static String escapeJson(String s) {
         return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    /**
+     * 【兜底安全网】清洗历史消息：将"无工具调用但暗示操作已完成"的 assistant 消息替换为中性占位文本。
+     *
+     * <p><b>主要防线</b>不在这里，而在系统提示：world-one 通用铁律声明"历史=参考，不=已执行"，
+     * 各 AIPP App 通过 systemPromptContribution 声明自己的操作规范。
+     * 本方法作为最后一道防线，处理 LLM 仍然绕过提示词产生幻觉的极端情况。
+     *
+     * <p>核心规则：assistant 纯文本消息（无 tool_calls 字段），且其前一条消息不是 tool 结果，
+     * 且内容包含 {@link #HALLUCINATION_PHRASES} 中的短语 → 认定为幻觉，替换内容。
+     *
+     * <p>合法的"操作完成"assistant 消息必定紧跟在一条 role=tool 消息之后，
+     * 因此此规则不会误伤正常的工具调用后回复。
+     */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> sanitizeHistory(List<Map<String, Object>> msgs) {
+        List<Map<String, Object>> result = new ArrayList<>(msgs.size());
+        for (int i = 0; i < msgs.size(); i++) {
+            Map<String, Object> msg = msgs.get(i);
+            String role = (String) msg.getOrDefault("role", "");
+
+            // widget 是 UI 专用持久化 role，LLM API 不支持，转为 assistant 占位
+            if ("widget".equals(role)) {
+                result.add(Map.of("role", "assistant", "content", "[已在界面上打开了对应的面板]"));
+                log.debug("[SanitizeHistory] Converted widget → assistant placeholder (session={})", sessionId);
+                continue;
+            }
+
+            if ("assistant".equals(role) && !msg.containsKey("tool_calls")) {
+                boolean precededByToolResult =
+                        i > 0 && "tool".equals(msgs.get(i - 1).get("role"));
+                if (!precededByToolResult) {
+                    String content = msg.get("content") instanceof String s ? s : "";
+                    if (isHallucinatedCompletion(content)) {
+                        Map<String, Object> fixed = new LinkedHashMap<>(msg);
+                        fixed.put("content", "好的，我会通过相应的工具来处理你的请求。");
+                        result.add(fixed);
+                        log.debug("[SanitizeHistory] Replaced hallucinated completion (session={})", sessionId);
+                        continue;
+                    }
+                }
+            }
+            result.add(msg);
+        }
+        return result;
+    }
+
+    /** 判断 assistant 消息是否包含"幻觉完成"特征短语。 */
+    private static boolean isHallucinatedCompletion(String text) {
+        if (text == null || text.isBlank()) return false;
+        for (String phrase : HALLUCINATION_PHRASES) {
+            if (text.contains(phrase)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 判断工具响应是否需要等待用户确认（sys.* widget 场景）。
+     *
+     * <p>检测两种标记（其中一个满足即返回 true）：
+     * <ol>
+     *   <li>{@code "status": "awaiting_confirmation"} — 工具显式声明挂起</li>
+     *   <li>{@code "canvas.widget_type"} 以 {@code "sys."} 开头 — 系统内置交互组件</li>
+     * </ol>
+     *
+     * <p>使用 Jackson 解析，不依赖字符串匹配，可单元测试。
+     */
+    /** tool 结果含 html_widget 时返回 true：widget 已渲染，不需要 LLM 续写文字。 */
+    static boolean isHtmlWidget(String toolResultJson) {
+        if (toolResultJson == null || toolResultJson.isBlank()) return false;
+        try {
+            return !JSON.readTree(toolResultJson).path("html_widget").isMissingNode();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    static boolean requiresUserConfirmation(String toolResultJson) {
+        if (toolResultJson == null || toolResultJson.isBlank()) return false;
+        try {
+            JsonNode root = JSON.readTree(toolResultJson);
+            // 1. 显式 awaiting_confirmation 状态
+            if ("awaiting_confirmation".equals(root.path("status").asText(""))) return true;
+            // 2. canvas.widget_type 以 sys. 开头
+            JsonNode canvas = root.path("canvas");
+            if (!canvas.isMissingNode() && !canvas.isNull()) {
+                String wType = canvas.path("widget_type").asText("");
+                if (wType.startsWith("sys.")) return true;
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

@@ -116,6 +116,25 @@ public class JdbcMemoryStore implements MemoryStore {
                 .stream().map(this::fromEntity).toList();
     }
 
+    /**
+     * 查找当前有效的 snapshot 记忆 ID（如果存在）。
+     * 用于 consolidation 后 SUPERSEDE 旧快照，或确认是否需要新建。
+     */
+    public Optional<UUID> findSnapshotId(String agentId, String userId) {
+        return repo.findSnapshot(agentId, userId).stream()
+                .findFirst()
+                .map(e -> UUID.fromString(e.getId()));
+    }
+
+    /**
+     * 加载最新 snapshot 内容（单条文本，供 memory_load 快速注入）。
+     */
+    public Optional<String> loadSnapshot(String agentId, String userId) {
+        return repo.findSnapshot(agentId, userId).stream()
+                .findFirst()
+                .map(MemoryEntity::getContent);
+    }
+
     // ── Entity ↔ Model ────────────────────────────────────────────────────
 
     private MemoryEntity toEntity(Memory m) {

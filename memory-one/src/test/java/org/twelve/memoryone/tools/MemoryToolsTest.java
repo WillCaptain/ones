@@ -130,6 +130,106 @@ class MemoryToolsTest {
         verify(store).supersede(eq(id), argThat(m -> "[deleted]".equals(m.content())));
     }
 
+    // ── memory_delete_request（确认流程保护）─────────────────────────────
+
+    /**
+     * deleteRequest 是删除操作的第一步：展示确认框，不执行实际删除。
+     * 必须返回 status=awaiting_confirmation 和 canvas.widget_type=sys.confirm，
+     * 否则 GenericAgentLoop 无法识别并会让 LLM 继续生成「已删除」回复。
+     */
+    @Test
+    @DisplayName("deleteRequest: 找到匹配记忆时返回 awaiting_confirmation + sys.confirm")
+    void deleteRequest_foundMemories_returnsConfirmWidget() {
+        UUID id = UUID.randomUUID();
+        when(store.query(any())).thenReturn(List.of(
+                sampleMemoryWithId(id, MemoryType.SEMANTIC, MemoryScope.GLOBAL, "今天发了工资")));
+
+        Map<String, Object> result = tools.deleteRequest(
+                Map.of("keyword", "工资"), Map.of("userId", "user1"));
+
+        // 1. 状态必须是 awaiting_confirmation（供 GenericAgentLoop 检测）
+        assertThat(result).containsEntry("ok", true);
+        assertThat(result).containsEntry("status", "awaiting_confirmation");
+
+        // 2. canvas.widget_type 必须是 sys.confirm（供前端渲染）
+        @SuppressWarnings("unchecked")
+        Map<String, Object> canvas = (Map<String, Object>) result.get("canvas");
+        assertThat(canvas).isNotNull();
+        assertThat(canvas).containsEntry("widget_type", "sys.confirm");
+        assertThat(canvas).containsEntry("action", "open");
+
+        // 3. data.yes.tool 必须是 memory_delete_confirmed（点确认后才真正删除）
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) canvas.get("data");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> yes = (Map<String, Object>) data.get("yes");
+        assertThat(yes).containsEntry("tool", "memory_delete_confirmed");
+
+        // 4. 此时不应触发任何实际删除
+        verify(store, never()).supersede(any(), any());
+    }
+
+    @Test
+    @DisplayName("deleteRequest: 未找到记忆时返回 ok=false（不弹确认框）")
+    void deleteRequest_noMemories_returnsError() {
+        when(store.query(any())).thenReturn(List.of());
+
+        Map<String, Object> result = tools.deleteRequest(
+                Map.of("keyword", "不存在的内容"), Map.of());
+
+        assertThat(result).containsEntry("ok", false);
+        assertThat(result).doesNotContainKey("canvas");
+        assertThat(result).doesNotContainKey("status");
+    }
+
+    @Test
+    @DisplayName("deleteRequest: message 不得含「删除成功/已删除」等完成语（防止 LLM 误读）")
+    void deleteRequest_messageDoesNotImplyCompletion() {
+        UUID id = UUID.randomUUID();
+        when(store.query(any())).thenReturn(List.of(
+                sampleMemoryWithId(id, MemoryType.SEMANTIC, MemoryScope.GLOBAL, "内容")));
+
+        Map<String, Object> result = tools.deleteRequest(
+                Map.of("keyword", "内容"), Map.of());
+
+        String msg = result.getOrDefault("message", "").toString();
+        // 确保不包含操作完成含义（防止 LLM 解读为已执行删除）
+        assertThat(msg).doesNotContainIgnoringCase("删除成功");
+        assertThat(msg).doesNotContainIgnoringCase("已成功删除");
+        // 消息里必须表明尚未执行
+        assertThat(msg).containsAnyOf("尚未执行", "等待用户确认", "请勿", "未执行");
+    }
+
+    // ── memory_delete_confirmed ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("deleteConfirmed: 给定 ids 列表时执行软删除")
+    void deleteConfirmed_softDeletesAllIds() {
+        UUID id1 = UUID.randomUUID();
+        UUID id2 = UUID.randomUUID();
+        when(store.findById(id1)).thenReturn(Optional.of(
+                sampleMemoryWithId(id1, MemoryType.SEMANTIC, MemoryScope.GLOBAL, "内容1")));
+        when(store.findById(id2)).thenReturn(Optional.of(
+                sampleMemoryWithId(id2, MemoryType.SEMANTIC, MemoryScope.GLOBAL, "内容2")));
+        when(store.supersede(any(), any())).thenAnswer(inv -> inv.getArgument(1));
+
+        Map<String, Object> result = tools.deleteConfirmed(
+                Map.of("ids", List.of(id1.toString(), id2.toString())), Map.of());
+
+        assertThat(result).containsEntry("ok", true);
+        assertThat(result).containsEntry("deleted_count", 2);
+        verify(store, times(2)).supersede(any(), argThat(m -> "[deleted]".equals(m.content())));
+    }
+
+    @Test
+    @DisplayName("deleteConfirmed: ids 为空时返回错误（不执行任何操作）")
+    void deleteConfirmed_emptyIds_returnsError() {
+        Map<String, Object> result = tools.deleteConfirmed(Map.of(), Map.of());
+
+        assertThat(result).containsEntry("ok", false);
+        verify(store, never()).supersede(any(), any());
+    }
+
     // ── memory_set_instruction ────────────────────────────────────────────
 
     @Test

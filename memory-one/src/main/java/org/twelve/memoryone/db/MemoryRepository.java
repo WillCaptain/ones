@@ -136,6 +136,22 @@ public interface MemoryRepository extends JpaRepository<MemoryEntity, String> {
             @Param("workspaceId") String workspaceId);
 
     /**
+     * Load the latest memory snapshot record (tag="snapshot", GLOBAL scope).
+     * Returns at most 1 result, ordered by updatedAt DESC.
+     */
+    @Query("""
+        SELECT m FROM MemoryEntity m
+        WHERE m.agentId = :agentId
+          AND m.userId = :userId
+          AND m.supersededBy IS NULL
+          AND m.tags LIKE '%snapshot%'
+        ORDER BY m.updatedAt DESC
+        """)
+    List<MemoryEntity> findSnapshot(
+            @Param("agentId") String agentId,
+            @Param("userId")  String userId);
+
+    /**
      * Management panel query: load all active memories owned by the user across
      * all sessions/workspaces (for explicit memory administration).
      */

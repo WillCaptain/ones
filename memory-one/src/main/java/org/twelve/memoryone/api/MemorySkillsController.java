@@ -41,6 +41,7 @@ public class MemorySkillsController {
     public static List<Map<String, Object>> buildSkillList() {
         return List.of(memoryLoadSkill(), memoryConsolidateSkill(),
                        memoryViewSkill(), memorySetInstructionSkill(),
+                       memoryQuerySkill(),
                        memoryDeleteRequestSkill(),
                        memoryWorkspaceJoinSkill());
     }
@@ -156,6 +157,39 @@ public class MemorySkillsController {
     // ── memory_delete_request ─────────────────────────────────────────────
 
     /**
+     * memory_query：LLM 按需查询特定记忆（对话中上下文不够时的补充检索）。
+     *
+     * <p>此工具对 LLM 可见，但 LLM 应静默使用（不告知用户）。
+     * 不属于 auto_pre_turn，由 LLM 自主判断是否需要调用。
+     */
+    private static Map<String, Object> memoryQuerySkill() {
+        Map<String, Object> skill = new LinkedHashMap<>();
+        skill.put("name",        "memory_query");
+        skill.put("description", "查询特定记忆细节。当对话中涉及的人物、事件或信息在已有背景中找不到时使用。" +
+                                 "可按关键词或记忆类型检索。直接使用，不要告知用户你在查询记忆。");
+        skill.put("parameters",  Map.of(
+            "type",       "object",
+            "properties", Map.of(
+                "keyword", Map.of("type", "string",
+                    "description", "关键词（模糊匹配内容），如人名、事件名称"),
+                "type",    Map.of("type", "string",
+                    "enum",        List.of("SEMANTIC", "EPISODIC", "PROCEDURAL", "RELATION", "GOAL"),
+                    "description", "记忆类型过滤（可选）"),
+                "limit",   Map.of("type", "integer",
+                    "description", "最多返回条数，默认 10")
+            ),
+            "required",   List.of()
+        ));
+        skill.put("canvas",         Map.of("triggers", false));
+        skill.put("prompt",         "静默调用 memory_query 工具检索所需记忆细节，直接将结果融入回答，不要告诉用户你在查询。");
+        skill.put("tools",          List.of("memory_query"));
+        skill.put("inject_context", Map.of("request_context", true));
+        return skill;
+    }
+
+    // ── memory_delete_request ─────────────────────────────────────────────
+
+    /**
      * memory_delete_request：LLM 发起删除请求，返回 sys.confirm 让用户确认。
      *
      * <p>不直接删除，而是返回 {@code sys.confirm} canvas 指令。
@@ -180,7 +214,10 @@ public class MemorySkillsController {
         skill.put("canvas",  Map.of("triggers", true, "widget_type", "sys.confirm"));
         skill.put("prompt",  "调用 memory_delete_request 工具。" +
                              "如果用户指定了 id，传入 id；否则从用户描述中提取关键词传入 keyword。" +
-                             "工具会返回 sys.confirm 确认框，等待用户决策后自动执行删除，无需 LLM 继续操作。");
+                             "工具返回后状态为 awaiting_confirmation（等待确认），" +
+                             "**此时删除尚未执行**，必须告知用户「请在上方确认框中点击确认」，" +
+                             "绝对不能说「已删除」「已完成」「删除成功」等表示操作已执行的话。" +
+                             "用户点击确认后系统自动执行删除，无需 LLM 继续操作。");
         skill.put("tools",   List.of("memory_delete_request"));
         skill.put("inject_context", Map.of("request_context", true));
         return skill;
@@ -218,22 +255,40 @@ public class MemorySkillsController {
      * 注入 worldone LLM 的记忆行为规范。
      */
     static final String MEMORY_INTENT_PROMPT = """
-            ## 记忆系统透明原则（最高优先级）
+            ## 记忆系统行为规范（最高优先级，由 memory-one 注入）
 
-            你拥有长期记忆能力。相关记忆上下文已由系统在本轮开始前自动注入（以"## 用户记忆背景"开头的内容），
-            用它来自然地了解用户，但**对话中绝对不能提及记忆系统的存在**。
+            ### 透明原则
+            你拥有长期记忆能力。关于用户的背景已由系统在本轮开始前自动注入（以"## 用户记忆快照"开头的内容），
+            把它当作你"本来就知道"的背景，自然融入对话。
 
             严禁在任何情况下说：
-            - "我已经记下来了" / "已记录" / "我会记住"
+            - "我已经记下来了" / "已记录" / "我会记住" / "已存入记忆"
             - "根据你的记忆" / "记忆库中显示" / "根据记录"
             - 列出或汇报记忆内容清单
             - 提及任何记忆相关的技术操作
 
-            正确做法：把记忆里的信息当作你"本来就知道"的背景，自然融入对话。
-            就像老朋友之间聊天——知道对方的情况，但不会说"根据我关于你的档案显示..."
+            正确做法：像老朋友聊天——知道对方的情况，但不会说"根据我关于你的档案显示..."
 
-            ## 记忆管理面板使用规则
+            ### 历史记录的解读（记忆操作专属）
+            对话历史中出现的"已删除/已创建/已更新记忆"等文字只是历史记录，
+            不代表对应工具实际上被调用过。
+            用户每次发出记忆操作指令，必须重新调用对应工具执行，
+            不能基于历史假设操作已完成。
 
+            ### 记忆删除规则
+            - 当用户明确要求"删除某条记忆"/"忘掉某事"/"移除某信息"时，
+              必须调用 memory_delete_request 工具（而非 memory_delete）。
+            - memory_delete_request 会显示确认框（awaiting_confirmation），
+              此时删除尚未执行，绝对不能说"已删除"——必须等用户点击确认。
+            - memory_delete/memory_create/memory_update 是管理工具，
+              仅当用户在记忆管理面板中主动操作时才可使用，禁止主动调用。
+
+            ### 按需查询记忆（memory_query）
+            如果对话中提到某人物、事件或信息，而已有背景中找不到相关细节，
+            可以**静默调用** memory_query 工具检索更多记忆。
+            调用时**不要告知用户**，直接把检索结果融入回答即可。
+
+            ### 记忆管理面板使用规则
             ⚠️ 仅当用户**明确要求**"打开记忆面板""管理记忆""查看记忆列表""编辑/删除某条记忆"时，
             才调用 memory_view 打开管理界面。
 

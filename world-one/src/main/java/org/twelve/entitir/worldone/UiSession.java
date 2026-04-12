@@ -23,6 +23,7 @@ public record UiSession(
         String createdAt
 ) {
     public boolean isConversation() { return "conversation".equals(type); }
+    public boolean isApp()          { return "app".equals(type); }
 
     /** 已完成或已作废，不在默认列表中展示。 */
     public boolean isArchived() {

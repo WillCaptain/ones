@@ -94,7 +94,7 @@ session widget stack:
 ### 模式 3：Inline Card（Chat 流内嵌卡片）
 
 ```
-LLM tool response → { "html_widget": { "html": "<div>...</div>", "height": "400px" } }
+LLM tool response → { "html_widget": { "html": "<div>...</div>", "height": "400px", "title": "摘要标题" } }
     → world-one 在 chat 消息流中嵌入卡片（srcdoc iframe）
 ```
 
@@ -102,6 +102,7 @@ LLM tool response → { "html_widget": { "html": "<div>...</div>", "height": "40
 - Session：当前 Chat Session
 - CSS 与主 DOM 完全隔离
 - 触发条件：tool response 包含 `html_widget` 字段
+- `title` 为必选字段，Host 在"已处理"卡片（`{title} · 已在界面上打开`）中使用
 
 ---
 

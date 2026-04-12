@@ -82,6 +82,65 @@ public class ToolProxyController {
         return forwardToWorldEntitir("/api/validate", body);
     }
 
+    @PostMapping("/schema-validate")
+    public ResponseEntity<?> proxySchemaValidate(@RequestBody Map<String, Object> body) {
+        return forwardToWorldEntitir("/api/schema-validate", body);
+    }
+
+    @PostMapping("/schema-completions")
+    public ResponseEntity<?> proxySchemaCompletions(@RequestBody Map<String, Object> body) {
+        return forwardToWorldEntitir("/api/schema-completions", body);
+    }
+
+    @PostMapping("/schema-hover")
+    public ResponseEntity<?> proxySchemaHover(@RequestBody Map<String, Object> body) {
+        return forwardToWorldEntitir("/api/schema-hover", body);
+    }
+
+    @GetMapping("/schema-types")
+    public ResponseEntity<?> proxySchemaTypes(
+            @RequestParam(name = "session_id") String sessionId) {
+        try {
+            AppRegistration app = registry.findAppForTool("world_register_action");
+            String url = app.baseUrl() + "/api/schema-types?session_id="
+                    + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8);
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofSeconds(15))
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            JsonNode result = JSON.readTree(resp.body());
+            return ResponseEntity.status(resp.statusCode())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(result);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @org.springframework.web.bind.annotation.GetMapping("/session-outline")
+    public ResponseEntity<?> proxySessionOutline(
+            @org.springframework.web.bind.annotation.RequestParam(name = "session_id") String sessionId) {
+        try {
+            AppRegistration app = registry.findAppForTool("world_register_action");
+            String url = app.baseUrl() + "/api/session-outline?session_id=" + sessionId;
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(10))
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            JsonNode result = JSON.readTree(resp.body());
+            return ResponseEntity.status(resp.statusCode())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(result);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     private ResponseEntity<?> forwardToWorldEntitir(String path, Map<String, Object> body) {
         try {
             AppRegistration app = registry.findAppForTool("world_register_action");

@@ -1,6 +1,8 @@
 package org.twelve.memoryone.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.twelve.memoryone.loader.DefaultMemoryLoader;
@@ -21,6 +23,8 @@ import java.util.*;
 @Component
 public class MemoryTools {
 
+    private static final Logger log = LoggerFactory.getLogger(MemoryTools.class);
+
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String DELETED_MARKER = "__deleted__";
     private static final String DEFAULT_AGENT_ID = "memory-one";
@@ -33,11 +37,19 @@ public class MemoryTools {
     // ── memory_load ───────────────────────────────────────────────────────
 
     /**
-     * 加载当前对话相关的记忆上下文。
-     * worldone 通过 _context 注入 userId、sessionId；
-     * LLM 通过 args 传入 user_message（用于检索相关性）。
+     * 加载当前对话的记忆上下文。
      *
-     * @return {"ok": true, "memory_context": "## Agent Memory\n...", "memory_ids": [...]}
+     * <h3>两种加载策略</h3>
+     * <ol>
+     *   <li><b>主 session（无 sessionId）</b>：直接返回 Global Snapshot 叙述段落。
+     *       快照由 consolidation 后异步生成，1 次 SQL，覆盖 GLOBAL 全5类核心记忆。
+     *       无快照时 fallback 到完整 DB 查询。</li>
+     *   <li><b>子 session（有 sessionId）</b>：返回纯结构化条目：
+     *       GLOBAL(3类) + WORKSPACE(3类) + SESSION(5类)。
+     *       结构化条目可精确引用（供 SUPERSEDE / GOAL_PROGRESS 等操作），无需叙述段落。</li>
+     * </ol>
+     *
+     * @return {"ok": true, "memory_context": "...", "memory_ids": [...]}
      */
     public Map<String, Object> load(Map<String, Object> args, Map<String, Object> context) {
         String userId      = ctxOrArg(context, args, "userId",      "user_id",       DEFAULT_USER_ID);
@@ -46,8 +58,26 @@ public class MemoryTools {
         String agentId     = ctxOrArg(context, args, "agentId",     "agent_id",      DEFAULT_AGENT_ID);
         String userMsg     = str(args, "user_message", "");
 
-        MemoryLoadResult result = loader.loadWithIds(userId, agentId, sessionId, workspaceId, userMsg);
+        boolean isSubSession = sessionId != null && !sessionId.isBlank();
 
+        if (isSubSession) {
+            // 子 session：纯结构化 GLOBAL(3类) + WORKSPACE(3类) + SESSION(5类)
+            MemoryLoadResult result = loader.loadSessionContext(userId, agentId, sessionId, workspaceId, userMsg);
+            return Map.of(
+                "ok",             true,
+                "memory_context", result.isEmpty() ? "" : result.injectionText(),
+                "memory_ids",     result.loadedIds().stream().map(UUID::toString).toList()
+            );
+        }
+
+        // 主 session：Global Snapshot 叙述段落
+        Optional<String> snapshot = store.loadSnapshot(agentId, userId);
+        if (snapshot.isPresent()) {
+            return Map.of("ok", true, "memory_context", "## 用户记忆快照\n" + snapshot.get(), "memory_ids", List.of());
+        }
+
+        // Fallback：无快照时完整查询（兼容首次启动 / snapshot 尚未生成）
+        MemoryLoadResult result = loader.loadWithIds(userId, agentId, sessionId, workspaceId, userMsg);
         return Map.of(
             "ok",             true,
             "memory_context", result.isEmpty() ? "" : result.injectionText(),
@@ -236,6 +266,7 @@ public class MemoryTools {
         String keyword  = str(args, "keyword", null);
         String agentId  = ctxOrArg(context, args, "agentId", "agent_id", DEFAULT_AGENT_ID);
         String userId   = ctxOrArg(context, args, "userId",  "user_id",  DEFAULT_USER_ID);
+        log.info("[deleteRequest] called: id={} keyword={} userId={}", idStr, keyword, userId);
 
         List<Memory> targets = new ArrayList<>();
         if (idStr != null) {
@@ -246,8 +277,10 @@ public class MemoryTools {
         }
 
         if (targets.isEmpty()) {
+            log.info("[deleteRequest] no targets found for id={} keyword={}", idStr, keyword);
             return Map.of("ok", false, "error", "未找到匹配的记忆，请确认 id 或 keyword");
         }
+        log.info("[deleteRequest] found {} targets, building sys.confirm canvas", targets.size());
 
         List<String> summaries = targets.stream()
                 .limit(5)
@@ -263,7 +296,9 @@ public class MemoryTools {
 
         Map<String, Object> confirmData = new LinkedHashMap<>();
         confirmData.put("mode",    "yes_no");
-        confirmData.put("title",   "确认删除记忆");
+        confirmData.put("title",   targets.size() > 1
+                ? "确认删除 " + targets.size() + " 条记忆"
+                : "确认删除记忆");
         confirmData.put("message", message);
         confirmData.put("danger",  true);
         confirmData.put("yes", Map.of(
@@ -276,6 +311,8 @@ public class MemoryTools {
 
         return Map.of(
                 "ok",     true,
+                "status", "awaiting_confirmation",
+                "message", "确认框已显示，等待用户确认。删除操作尚未执行，请勿说已删除。",
                 "canvas", Map.of(
                         "action",      "open",
                         "widget_type", "sys.confirm",
@@ -290,6 +327,7 @@ public class MemoryTools {
     public Map<String, Object> deleteConfirmed(Map<String, Object> args, Map<String, Object> context) {
         @SuppressWarnings("unchecked")
         List<String> ids = (List<String>) args.getOrDefault("ids", List.of());
+        log.info("[deleteConfirmed] called: ids={}", ids);
         if (ids.isEmpty()) {
             String idStr = str(args, "id", null);
             if (idStr != null) ids = List.of(idStr);
@@ -314,6 +352,7 @@ public class MemoryTools {
 
     public Map<String, Object> delete(Map<String, Object> args, Map<String, Object> context) {
         String idStr = str(args, "id", null);
+        log.warn("[delete] DIRECT DELETE called! id={} — should only happen via deleteConfirmed", idStr);
         if (idStr == null) return error("id is required");
 
         Optional<Memory> opt = store.findById(UUID.fromString(idStr));

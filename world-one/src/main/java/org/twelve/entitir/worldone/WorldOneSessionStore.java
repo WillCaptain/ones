@@ -56,6 +56,39 @@ public class WorldOneSessionStore {
         sessions.clear();
     }
 
+    /**
+     * 重置指定 session：删除 DB 历史消息，移除内存 loop。
+     * 下次 get() 会重建一个全新的 loop（含最新 system prompt，无历史消息）。
+     */
+    public void resetSession(String agentSessionId) {
+        messageHistory.clearHistory(agentSessionId);
+        sessions.remove(agentSessionId);
+    }
+
+    /**
+     * 从内存中的 GenericAgentLoop 末尾截掉最后 n 条历史消息。
+     * 配合 deleteLastN DB 操作，保持内存和 DB 一致。
+     */
+    public void trimHistory(String agentSessionId, int n) {
+        GenericAgentLoop loop = sessions.get(agentSessionId);
+        if (loop != null) loop.trimHistory(n);
+    }
+
+    /**
+     * 从内存 GenericAgentLoop 中删除从第 from 条（0-based）开始共 count 条。
+     * from=-1 时等同于 trimHistory（从末尾删 count 条）。
+     */
+    public void trimHistoryRange(String agentSessionId, int from, int count) {
+        GenericAgentLoop loop = sessions.get(agentSessionId);
+        if (loop != null) loop.trimHistoryRange(from, count);
+    }
+
+    /** 删除最后一个完整 user-turn（从最后一条 user 消息到末尾）。 */
+    public void trimLastTurn(String agentSessionId) {
+        GenericAgentLoop loop = sessions.get(agentSessionId);
+        if (loop != null) loop.trimLastTurn();
+    }
+
     public Map<String, String> listSessions() {
         Map<String, String> result = new LinkedHashMap<>();
         sessions.forEach((id, loop) -> result.put(id, "会话 " + id.substring(0, 8)));

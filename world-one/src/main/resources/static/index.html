@@ -342,6 +342,44 @@ body.canvas-mode .designer-tab-content { top: 36px; }
   cursor: pointer; transition: background .15s, color .15s;
 }
 .graph-tool-btn:hover { background: var(--surface3); color: var(--text); }
+.graph-tool-btn.active { background: var(--surface3); color: var(--text); border-color: var(--border2); }
+
+/* ── Ontology view toggle (Graph | Schema) ── */
+.ontology-view-tabs {
+  display: flex; gap: 0; border-radius: 7px; overflow: hidden;
+  border: 1px solid var(--border2); margin-left: 6px;
+  pointer-events: all;
+}
+.ovt-btn {
+  padding: 3px 12px; font-size: 11px; background: var(--surface2);
+  border: none; color: var(--text-dim); cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.ovt-btn + .ovt-btn { border-left: 1px solid var(--border2); }
+.ovt-btn.active { background: var(--accent); color: #fff; }
+.ovt-btn:not(.active):hover { background: var(--surface3); color: var(--text); }
+
+/* Schema editor container */
+#ontology-schema-view {
+  position: absolute; top: 0; bottom: 0; left: 0; right: 0;
+  display: flex; flex-direction: column;
+}
+.schema-editor-bar {
+  height: 36px; min-height: 36px; display: flex; align-items: center;
+  padding: 0 10px; gap: 8px; border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.schema-editor-bar .schema-status {
+  flex: 1; font-size: 11px; color: var(--text-muted);
+}
+.schema-save-btn {
+  padding: 4px 14px; font-size: 11px; border-radius: 6px;
+  background: var(--accent); color: #fff; border: none; cursor: pointer;
+  transition: background .15s;
+}
+.schema-save-btn:hover { background: var(--accent-h); }
+.schema-save-btn:disabled { opacity: .4; cursor: default; }
+#schema-code-editor { flex: 1; min-height: 0; }
 
 /* ── Node Detail Panel (right of graph) ── */
 .node-detail {
@@ -736,6 +774,31 @@ body.session-readonly .mem-create-btn { pointer-events: none; opacity: .4; }
 }
 .chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
 
+/* ── AIPP sys.* Inline Card (in chat stream, canvas mode) ────────────── */
+.sys-inline-card {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: var(--radius); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+  max-width: 340px;
+}
+.sys-inline-card.danger { border-color: rgba(255,79,106,.35); }
+.sys-inline-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.sys-inline-message {
+  font-size: 12px; color: var(--text-dim); line-height: 1.6;
+  white-space: pre-wrap;
+}
+.sys-inline-buttons { display: flex; gap: 7px; margin-top: 2px; }
+.sys-inline-btn {
+  padding: 5px 14px; border-radius: var(--radius); border: none;
+  font-size: 12px; font-weight: 500; cursor: pointer; transition: opacity .15s;
+}
+.sys-inline-btn:disabled { opacity: .4; cursor: default; }
+.sys-inline-btn:hover:not(:disabled) { opacity: .85; }
+.sys-inline-btn.primary   { background: var(--accent);  color: #fff; }
+.sys-inline-btn.danger    { background: var(--danger);  color: #fff; }
+.sys-inline-btn.secondary { background: var(--surface3); color: var(--text-dim); border: 1px solid var(--border); }
+.sys-inline-done { font-size: 12px; color: var(--text-dim); font-style: italic; }
+
 /* ── AIPP System Widget Modal (sys.confirm / sys.alert / sys.prompt) ── */
 .sys-modal-overlay {
   display: none; position: fixed; inset: 0;
@@ -819,7 +882,8 @@ body.session-readonly .mem-create-btn { pointer-events: none; opacity: .4; }
 /* ── Apps Panel ───────────────────────────────────────────────────────── */
 .apps-panel {
   position:fixed; left:52px; bottom:var(--apps-panel-bottom,54px); z-index:900;
-  width:220px; max-height:calc(100vh - 80px);
+  width:220px;
+  max-height:calc(100vh - var(--apps-panel-bottom,54px) - 8px);
   background:var(--surface); border:1px solid var(--border);
   border-radius:var(--radius);
   display:flex; flex-direction:column; overflow:hidden;
@@ -831,21 +895,8 @@ body.session-readonly .mem-create-btn { pointer-events: none; opacity: .4; }
 .apps-panel.open { transform:translateX(0); opacity:1; pointer-events:all; }
 .apps-header { height:32px; display:flex; align-items:center; padding:0 12px; border-bottom:1px solid var(--border); flex-shrink:0; }
 .apps-title { font-size:10px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.8px; }
-.apps-body { flex:1; overflow-y:auto; }
-.apps-loading { display:flex; align-items:center; justify-content:center; padding:24px; }
-.apps-spinner { width:18px; height:18px; border:2px solid var(--border2); border-top-color:var(--accent); border-radius:50%; animation:spin 0.7s linear infinite; }
+.apps-body { flex:1; min-height:0; overflow-y:auto; }
 @keyframes spin { to { transform:rotate(360deg); } }
-.apps-grid { display:flex; flex-direction:column; }
-.app-card { display:flex; align-items:center; gap:9px; padding:9px 12px; cursor:pointer; border-bottom:1px solid var(--border); transition:background 0.12s; }
-.app-card:last-child { border-bottom:none; }
-.app-card:hover { background:var(--active); }
-.app-card:active { background:var(--surface3); }
-.app-card.inactive { opacity:0.38; cursor:default; }
-.app-icon { width:18px; height:18px; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
-.app-icon svg { width:16px; height:16px; }
-.app-info { flex:1; min-width:0; }
-.app-name { font-size:13px; font-weight:500; color:var(--text); }
-.app-desc { font-size:11px; color:var(--text-dim); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
 /* ── HTML Widget (inline chat card, is_canvas_mode=false) ────────────── */
 .html-widget-msg { padding:4px 0; }
@@ -956,6 +1007,50 @@ body.session-readonly .mem-create-btn { pointer-events: none; opacity: .4; }
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+/* ── Message body wrapper + action icons ── */
+.msg-body { display: flex; flex-direction: column; min-width: 0; }
+.msg.user      .msg-body { align-items: flex-end; }
+.msg.assistant .msg-body { align-items: flex-start; }
+.msg-actions {
+  display: flex; gap: 2px; opacity: 0; transition: opacity .12s;
+  padding: 2px 0 0;
+}
+.msg:hover .msg-actions { opacity: 1; }
+.msg-action-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); border-radius: 4px;
+  transition: background .1s, color .1s;
+  padding: 0;
+}
+.msg-action-btn:hover { background: var(--surface3); color: var(--text); }
+.msg-action-btn svg { pointer-events: none; }
+.msg-edit-area {
+  background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px;
+  padding: 6px 10px; color: var(--text); font-size: 13px; resize: none;
+  min-width: 180px; max-width: 440px; outline: none; line-height: 1.5;
+  font-family: inherit;
+}
+.msg-edit-area:focus { border-color: var(--accent); }
+/* Widget 消息右上角删除按钮 */
+.html-widget-msg { position: relative; }
+.widget-actions {
+  position: absolute; top: 6px; right: 6px;
+  display: flex; gap: 2px; opacity: 0; transition: opacity .12s;
+  z-index: 10;
+}
+.html-widget-msg:hover .widget-actions { opacity: 1; }
+/* 已处理卡片 */
+.widget-processed-msg .msg-body { padding: 0; }
+.widget-processed-card {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 6px;
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text-dim); font-size: 12px;
+}
+.widget-processed-card svg { color: #4fbf8f; flex-shrink: 0; }
 
 /* ── Markdown 渲染样式（assistant/system 气泡）── */
 .msg-bubble p { margin: 0 0 6px; }
@@ -1094,10 +1189,9 @@ window.addEventListener('DOMContentLoaded', () => {
     <span class="apps-title" data-i18n="apps.title">应用</span>
   </div>
   <div class="apps-body" id="apps-body">
-    <div class="apps-loading" id="apps-loading">
-      <div class="apps-spinner"></div>
-    </div>
-    <div class="apps-grid" id="apps-grid"></div>
+    <iframe id="apps-iframe"
+            sandbox="allow-scripts allow-same-origin"
+            style="width:100%;height:100%;border:none;display:block;"></iframe>
   </div>
 </div>
 
@@ -1213,6 +1307,10 @@ window.addEventListener('DOMContentLoaded', () => {
         </button>
       </div>
       <div class="graph-toolbar-ov" id="graph-toolbar-ov">
+        <div class="ontology-view-tabs" id="ontology-view-tabs">
+          <button class="ovt-btn active" id="ovt-graph"  onclick="switchOntologyView('graph')">Graph</button>
+          <button class="ovt-btn"        id="ovt-schema" onclick="switchOntologyView('schema')">Schema</button>
+        </div>
         <button class="graph-tool-btn" onclick="resetLayout()" title="清除手动布局，基于关联重新排列">
           <svg viewBox="0 0 14 14" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8">
             <path d="M2 7a5 5 0 1 0 10 0 5 5 0 0 0-10 0"/><polyline points="9 4 12 4 12 7"/>
@@ -1228,7 +1326,17 @@ window.addEventListener('DOMContentLoaded', () => {
       </div>
       <!-- Ontology tab content: entity graph -->
       <div id="designer-tab-ontology" class="designer-tab-content active">
-        <svg id="entity-graph"></svg>
+        <!-- Graph sub-view -->
+        <div id="ontology-graph-view" style="position:absolute;top:0;bottom:0;left:0;right:0;">
+          <svg id="entity-graph"></svg>
+        </div>
+        <!-- Schema sub-view (hidden by default) -->
+        <div id="ontology-schema-view" style="display:none;">
+          <div class="schema-editor-bar">
+            <span class="schema-status" id="schema-status"></span>
+          </div>
+          <div id="schema-code-editor"></div>
+        </div>
       </div>
       <!-- Decisions tab content -->
       <div id="designer-tab-decisions" class="designer-tab-content" style="display:none">
@@ -1461,9 +1569,14 @@ window.addEventListener('DOMContentLoaded', () => {
           <div class="nd-title" id="nd-title">—</div>
           <span class="nd-type-badge entity" id="nd-badge">实体</span>
         </div>
-        <button class="nd-close" onclick="hideNodeDetail()" title="关闭">
-          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg>
-        </button>
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+          <button id="nd-open-schema" style="display:none;background:none;border:1px solid var(--border);color:var(--text-dim);padding:2px 7px;border-radius:4px;font-size:10px;cursor:pointer" title="在 Schema 编辑器中查看/编辑">
+            Schema
+          </button>
+          <button class="nd-close" onclick="hideNodeDetail()" title="关闭">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg>
+          </button>
+        </div>
       </div>
       <div class="nd-body" id="nd-body"></div>
       <div class="nd-footer">
@@ -1661,18 +1774,20 @@ let isStreaming            = false;
 // ─── Init: load sessions from backend ────────────────────────────────────────
 async function loadSessions() {
   try {
-    const { sessions } = await fetch('/api/sessions?all=true').then(r => r.json());
-    (sessions || []).forEach(s => {
+    const data = await fetch('/api/sessions?all=true').then(r => r.json());
+    const allSessions = [...(data.sessions || []), ...(data.app_sessions || [])];
+    allSessions.forEach(s => {
       // conversation type sessions (main) never auto-enter canvas mode
       const isConversation = s.type === 'conversation';
-      const canvasMode = !isConversation && !!s.widgetType;
+      const isApp          = s.type === 'app';
+      const canvasMode = !isConversation && !isApp && !!s.widgetType;
 
       if (!sessionData[s.id]) {
         sessionData[s.id] = {
           id: s.id, type: s.type, name: s.name, status: s.status,
           messages: [], canvasMode, graphState: { nodes: [], edges: [] },
-          widgetType: isConversation ? null : (s.widgetType || null),
-          canvasSessionId: isConversation ? null : (s.canvasSessionId || null),
+          widgetType: (isConversation || isApp) ? null : (s.widgetType || null),
+          canvasSessionId: (isConversation || isApp) ? null : (s.canvasSessionId || null),
           showWelcome: false,
         };
       } else {
@@ -1680,7 +1795,7 @@ async function loadSessions() {
         sessionData[s.id].status          = s.status;
         sessionData[s.id].type            = s.type;
         // 仅在本地 canvasMode 未激活时，从服务端同步 canvas 状态（避免覆盖当前激活状态）
-        if (!sessionData[s.id].canvasMode && !isConversation) {
+        if (!sessionData[s.id].canvasMode && !isConversation && !isApp) {
           sessionData[s.id].widgetType      = s.widgetType || null;
           sessionData[s.id].canvasSessionId = s.canvasSessionId || null;
           sessionData[s.id].canvasMode      = !!s.widgetType;
@@ -2367,6 +2482,8 @@ async function refreshEntityGraph() {
       graphState = { nodes: canvas.props.nodes || [], edges: canvas.props.edges || [] };
       renderGraphKeepLayout();
       renderOutline();
+      // If schema view is open, reload from server (JSON-first: Outline is derived)
+      if (_currentOntologyView === 'schema') loadSchemaEditor();
     }
   } catch(e) { /* 静默失败 */ }
 }
@@ -2431,6 +2548,151 @@ function onActionTypeChange() {
 
 function closeActionEditor() {
   document.getElementById('action-editor-overlay').style.display = 'none';
+}
+
+// ── Ontology Schema Editor (Graph | Schema view toggle) ─────────────────────
+
+let _currentOntologyView = 'graph'; // 'graph' | 'schema'
+let _schemaEditor = null;           // Monaco editor instance for schema view
+let _schemaMonacoReady = false;
+let _scheduleSchemaDiagnostics = null; // debounced diagnostics fn for schema editor
+
+/** Toggle between Graph and Schema sub-views inside the Ontology tab. */
+function switchOntologyView(view) {
+  _currentOntologyView = view;
+  const graphView  = document.getElementById('ontology-graph-view');
+  const schemaView = document.getElementById('ontology-schema-view');
+  const btnGraph   = document.getElementById('ovt-graph');
+  const btnSchema  = document.getElementById('ovt-schema');
+  const toolbar    = document.getElementById('graph-toolbar-ov');
+
+  if (view === 'schema') {
+    graphView.style.display  = 'none';
+    schemaView.style.display = '';
+    btnGraph.classList.remove('active');
+    btnSchema.classList.add('active');
+    // Hide graph-only toolbar buttons but keep toggle visible
+    toolbar.querySelectorAll('.graph-tool-btn').forEach(b => b.style.display = 'none');
+    // Schema 模式：禁用外层容器的 overflow，让 Monaco 完全接管滚动
+    const gs = document.getElementById('graph-scroll');
+    const ot = document.getElementById('designer-tab-ontology');
+    if (gs) gs.style.overflow = 'hidden';
+    if (ot) ot.style.overflow = 'hidden';
+    // Report schema sub-view to LLM context (schema-specific llm_hint will be injected)
+    aippReportView('entity-graph', 'schema');
+    loadSchemaEditor();
+  } else {
+    graphView.style.display  = '';
+    schemaView.style.display = 'none';
+    btnSchema.classList.remove('active');
+    btnGraph.classList.add('active');
+    toolbar.querySelectorAll('.graph-tool-btn').forEach(b => b.style.display = '');
+    // Graph 模式：恢复外层 overflow（SVG 需要可滚动）
+    const gs = document.getElementById('graph-scroll');
+    const ot = document.getElementById('designer-tab-ontology');
+    if (gs) gs.style.overflow = 'auto';
+    if (ot) ot.style.overflow = 'auto';
+    // Return to ontology graph view
+    aippReportView('entity-graph', 'ontology');
+  }
+}
+
+/** @deprecated Outline is now generated server-side. Use loadSchemaEditor() instead. */
+function buildFullSchemaCode() {
+  return '// Schema is now generated server-side (JSON → Outline).\n';
+}
+
+/** Fetch generated Outline from the server and populate the read-only schema editor. */
+async function loadSchemaEditor() {
+  setSchemaStatus('加载中…');
+  try {
+    if (!worldSessionId) {
+      const code = '// 暂无会话\n';
+      await ensureSchemaEditor(code);
+      setSchemaStatus('Outline Schema（只读）');
+      return;
+    }
+    // Fetch outline and type map in parallel; type map enables instant hover (no per-hover HTTP)
+    const [outlineRes, typesRes] = await Promise.all([
+      fetch(`/api/proxy/session-outline?session_id=${encodeURIComponent(worldSessionId)}`),
+      fetch(`/api/proxy/schema-types?session_id=${encodeURIComponent(worldSessionId)}`),
+    ]);
+    if (!outlineRes.ok) throw new Error(`HTTP ${outlineRes.status}`);
+    const data = await outlineRes.json();
+    // Push session type data into OutlineLang — it owns all type inference from here
+    if (typesRes.ok && typeof OutlineLang !== 'undefined') {
+      OutlineLang.setTypeMap(await typesRes.json());
+    }
+    await ensureSchemaEditor(data.outline || '// 暂无定义\n');
+    setSchemaStatus('Outline Schema（只读 · 由 JSON 实时生成）');
+  } catch (e) {
+    setSchemaStatus('加载失败：' + e.message);
+  }
+}
+
+/** Create or update the schema Monaco editor with the given value (read-only). */
+function ensureSchemaEditor(value) {
+  return new Promise(resolve => {
+    if (_schemaEditor) {
+      _schemaEditor.setValue(value || '');
+      // 强制重新 layout，确保切换到 schema view 后尺寸计算正确
+      requestAnimationFrame(() => _schemaEditor.layout());
+      resolve();
+      return;
+    }
+    const cfg = { paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.46.0/min/vs' } };
+    require.config(cfg);
+    require(['vs/editor/editor.main'], () => {
+      if (!_schemaMonacoReady) {
+        if (typeof OutlineLang !== 'undefined') {
+          try { OutlineLang.registerLanguage(); } catch (_) {}
+          // Hover: backed by OutlineLang's internal type map (set via setTypeMap at schema load)
+          try { OutlineLang.registerHover(); } catch (_) {}
+          // Diagnostics: underline syntax/cross-ref errors in the generated schema
+          // (schema is read-only but errors should still surface visually)
+          try {
+            _scheduleSchemaDiagnostics = OutlineLang.createDiagnostics({
+              validateUrl: '/api/proxy/schema-validate',
+              getRequestBody: (code) => ({ session_id: worldSessionId, code }),
+              get editor() { return _schemaEditor; },
+              debounceMs: 800,
+              markerOwner: 'schema-lint',
+            });
+          } catch (_) {}
+        }
+        _schemaMonacoReady = true;
+      }
+      const container = document.getElementById('schema-code-editor');
+      if (!container) { resolve(); return; }
+      _schemaEditor = monaco.editor.create(container, {
+        value: value || '',
+        language: 'outline',
+        theme: 'outline-dark',
+        fontSize: 12,
+        lineNumbers: 'on',
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        automaticLayout: true,
+        wordWrap: 'off',
+        tabSize: 2,
+        readOnly: true,            // Outline is read-only (derived from JSON)
+        domReadOnly: true,
+      });
+      // Trigger initial diagnostics pass
+      if (_scheduleSchemaDiagnostics) _scheduleSchemaDiagnostics();
+      resolve();
+    });
+  });
+}
+
+function setSchemaStatus(msg) {
+  const el = document.getElementById('schema-status');
+  if (el) el.textContent = msg;
+}
+
+/** Outline is read-only in JSON-first mode. This function is a no-op. */
+async function saveSchema() {
+  setSchemaStatus('Outline Schema 是只读的，请通过 JSON 工具修改 entity/enum');
 }
 
 async function saveAction() {
@@ -2556,10 +2818,13 @@ async function switchSession(targetId) {
       const resp = await fetch(`/api/sessions/${targetId}/messages`);
       if (resp.ok) {
         const { messages } = await resp.json();
-        next.messages = (messages || []).map(m => ({
-          role: m.role,
-          html: md(m.content),
-        }));
+        next.messages = (messages || []).map(m => {
+          if (m.role === 'widget') {
+            // widget 消息：保存 widgetJson，restoreMessages 会重建 iframe
+            return { role: 'assistant', widgetJson: m.widgetJson };
+          }
+          return { role: m.role, html: md(m.content) };
+        });
       }
     } catch(e) { /* 静默失败，显示空页面 */ }
   }
@@ -2665,6 +2930,15 @@ function escapeHtmlContent(text) {
 function saveDomMessages(container) {
   const result = [];
   container.querySelectorAll('.msg').forEach(el => {
+    // widget 消息：从 data 属性恢复 widgetJson 和 processed 状态
+    if (el.dataset.widgetJson) {
+      result.push({
+        role: 'assistant',
+        widgetJson: el.dataset.widgetJson,
+        processed: el.dataset.processed === 'true',
+      });
+      return;
+    }
     const role   = el.classList.contains('user') ? 'user'
                  : el.classList.contains('system') ? 'system' : 'assistant';
     const bubble = el.querySelector('.msg-bubble');
@@ -2685,7 +2959,22 @@ function restoreMessages(sess) {
   }
 
   (sess.messages || []).forEach(m => {
-    const el = buildMsgEl(m.role, null, m.html);
+    let el;
+    if (m.widgetJson) {
+      if (m.processed) {
+        // 已处理：显示静态卡片而非活跃 iframe
+        el = _buildProcessedCard(m.widgetJson);
+      } else {
+        // Widget 消息：渲染为可交互 iframe（同 sendMessage 路径）
+        el = document.createElement('div');
+        el.className = 'msg assistant html-widget-msg';
+        renderHtmlWidget(m.widgetJson, el);
+        // 注入 widget delete 按钮
+        _injectWidgetActions(el);
+      }
+    } else {
+      el = buildMsgEl(m.role, null, m.html);
+    }
     fullBox.appendChild(el);
     if (sess.canvasMode) panelBox.appendChild(el.cloneNode(true));
   });
@@ -2773,13 +3062,23 @@ async function sendMessage(area) {
 
           } else if (ev.type === 'html_widget') {
             // is_canvas_mode=false widget：渲染为聊天流内嵌 iframe 卡片
-            const liveEl = document.getElementById(liveId);
-            if (liveEl) {
-              // 用 live progress 元素作为容器
-              liveEl.innerHTML = '';
-              renderHtmlWidget(ev.content, liveEl);
-              _lastHtmlWidgetEl = liveEl;
+            // 注意：若 text_token 先到，startStreamingResponse 已把 liveId 从 DOM 移除
+            // 并用 streamState.msgEl 替代——此时需接管 msgEl 来渲染 widget
+            let containerEl = document.getElementById(liveId);
+            if (!containerEl && streamState) {
+              // text_token 先于 html_widget 到达：接管流式文本元素
+              containerEl = streamState.msgEl;
+              streamState = null; // 不再走 finalizeStream
+            }
+            if (containerEl) {
+              containerEl.innerHTML = '';
+              containerEl.className = 'msg assistant'; // 清掉流式相关 class
+              renderHtmlWidget(ev.content, containerEl);
+              _lastHtmlWidgetEl = containerEl;
+              _lastHtmlWidgetSessionId = currentSessionId;
               liveFinalized = true;
+              const sess = sessionData[currentSessionId];
+              if (sess) sess.messages.push({ role: 'assistant', widgetJson: ev.content });
             }
 
           } else if (ev.type === 'session') {
@@ -2885,12 +3184,15 @@ function handleSessionEvent(data, triggerMsg) {
       showWelcome: false,
     };
     switchSession(ui_session_id);
-    // 新建任务时，确保面板是展开的，让用户看到新 task 条目
-    setPanelOpen(true);
-    // 切换到任务分类，让新 task 高亮
-    if (type === 'task' || type === 'event') {
-      activeCategory = type;
-      updatePanelTitle();
+    // app sessions never appear in Task Panel
+    if (type !== 'app') {
+      // 新建任务时，确保面板是展开的，让用户看到新 task 条目
+      setPanelOpen(true);
+      // 切换到任务分类，让新 task 高亮
+      if (type === 'task' || type === 'event') {
+        activeCategory = type;
+        updatePanelTitle();
+      }
     }
   }
   updateFuncbarActive();
@@ -2905,9 +3207,11 @@ function handleCanvasCommand(cmd) {
   if (!cmd?.action) return;
   const { action, widget_type, props } = cmd;
 
-  // sys.* — AIPP 系统内置 widget（模态覆盖层，不进导航栈）
+  // sys.* — AIPP 系统内置 widget
+  // LLM 触发（来自 canvas 事件）→ inline card 嵌入当前 chat 面板，不影响 canvas 模式
+  // 直接 JS 调用（memCardDelete）→ modal overlay（见 showSysModal）
   if (widget_type && widget_type.startsWith('sys.')) {
-    if (action === 'open') handleSysWidgetCommand(widget_type, cmd.data || props);
+    if (action === 'open') addSysInlineCard(widget_type, cmd.data || props || {});
     return;
   }
 
@@ -2966,6 +3270,7 @@ function handleCanvasCommand(cmd) {
     if (sessionData[currentSessionId]) sessionData[currentSessionId].graphState = { ...graphState };
     renderGraphKeepLayout();
     if (selectedNodeId) showNodeDetail(selectedNodeId);
+    if (_currentOntologyView === 'schema') loadSchemaEditor();
   } else if (action === 'replace') {
     graphState = { nodes: props.nodes||[], edges: props.edges||[] };
     const sess = sessionData[currentSessionId];
@@ -2975,6 +3280,7 @@ function handleCanvasCommand(cmd) {
       enterCanvasMode(cmd.session_name || props?.session_name || sessionData[currentSessionId]?.name || 'Entity Graph', widget_type || 'entity-graph');
     }
     requestAnimationFrame(() => renderGraph());
+    if (_currentOntologyView === 'schema') loadSchemaEditor();
     if (isDesigner) loadDesignerTabData();
   } else if (action === 'close') {
     exitToMainSession();
@@ -3568,6 +3874,7 @@ function handleSseEvent(ev, containerEl) {
 function addMessage(role, text, thinking = null) {
   const box = activeMessages();
   const el  = buildMsgEl(role, text, null, thinking);
+  if (role === 'user' && text) el.dataset.rawText = text;  // 保存原始文本供重问/编辑使用
   box.appendChild(el);
   box.scrollTop = box.scrollHeight;
   if (isCanvasMode) {
@@ -3600,7 +3907,28 @@ function buildMsgEl(role, text, preHtml, thinking = null) {
   } else {
     inner = preHtml || md(text || '');
   }
-  div.innerHTML = `<div class="msg-avatar">${av}</div><div class="msg-bubble">${inner}</div>`;
+
+  // SVG icons
+  const icoTrash  = `<svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5h10M5.5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M5.5 6v4.5M8.5 6v4.5M3 3.5l.7 7.2a.5.5 0 00.5.3h5.6a.5.5 0 00.5-.3L11 3.5"/></svg>`;
+  const icoRetry  = `<svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7a5 5 0 105.5-4.97"/><path d="M5.5 1v3h3"/></svg>`;
+  const icoPencil = `<svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2.5l2 2L4 12H2v-2L9.5 2.5z"/></svg>`;
+  const icoCopy   = `<svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="7" height="8" rx="1"/><path d="M9 5V3a1 1 0 00-1-1H3a1 1 0 00-1 1v7a1 1 0 001 1h2"/></svg>`;
+
+  let actions = '';
+  if (role === 'user') {
+    actions = `<div class="msg-actions">
+      <button class="msg-action-btn" title="重问" onclick="msgReask(this)">${icoRetry}</button>
+      <button class="msg-action-btn" title="编辑" onclick="msgEdit(this)">${icoPencil}</button>
+      <button class="msg-action-btn" title="删除" onclick="msgDelete(this)">${icoTrash}</button>
+    </div>`;
+  } else if (role === 'assistant') {
+    actions = `<div class="msg-actions">
+      <button class="msg-action-btn" title="复制" onclick="msgCopy(this)">${icoCopy}</button>
+      <button class="msg-action-btn" title="删除" onclick="msgDelete(this)">${icoTrash}</button>
+    </div>`;
+  }
+
+  div.innerHTML = `<div class="msg-avatar">${av}</div><div class="msg-body"><div class="msg-bubble">${inner}</div>${actions}</div>`;
   return div;
 }
 
@@ -3617,6 +3945,127 @@ const TOOL_LABELS = {
   world_archive:            '归档',
 };
 function toolLabel(name) { return TOOL_LABELS[name] || name; }
+
+// ── Message action helpers ────────────────────────────────────────────────
+
+/** 从 action 按钮找到所属 .msg 元素 */
+function _msgEl(btn) { return btn.closest('.msg'); }
+
+/**
+ * 从 sessionData.messages 中移除与 DOM 元素对应的条目，并返回其索引（-1 表示未找到）。
+ * 通过元素在消息容器中的位置（索引）定位。
+ */
+function _removeFromSession(el) {
+  const box = el.parentNode;
+  if (!box) return -1;
+  const idx = Array.from(box.children).indexOf(el);
+  if (idx < 0) return -1;
+  const sess = sessionData[currentSessionId];
+  if (sess && sess.messages) sess.messages.splice(idx, 1);
+  return idx;
+}
+
+/** 删除消息（用户消息同时删除紧随其后的 assistant 消息）。 */
+function msgDelete(btn) {
+  if (isStreaming) return;
+  const el   = _msgEl(btn);
+  const box  = el.parentNode;
+  if (!box) return;
+
+  // 计算起始索引（删 DB 前先算，因为 _removeFromSession 会改变数组）
+  const idx = Array.from(box.children).indexOf(el);
+  let count = 1;
+
+  if (el.classList.contains('user')) {
+    const next = el.nextElementSibling;
+    if (next && next.classList.contains('assistant')) {
+      count = 2;
+      _removeFromSession(next); // 先删后一条（索引先不变）
+      next.remove();
+    }
+  }
+  _removeFromSession(el);
+  el.remove();
+
+  // 同步删除后端 DB
+  if (idx >= 0) {
+    fetch(`/api/sessions/${currentSessionId}/messages/range?from=${idx}&count=${count}`,
+      { method: 'DELETE' }).catch(() => {});
+  }
+}
+
+/** 重问：用原问题重新发送，先删除该问题及其 assistant 回答。 */
+async function msgReask(btn) {
+  if (isStreaming) return;
+  const el  = _msgEl(btn);
+  const raw = el.dataset.rawText || el.querySelector('.msg-bubble')?.innerText?.trim();
+  if (!raw) return;
+  await msgReaskWithText(el, raw);
+}
+
+/** 编辑：将 user 气泡替换为可编辑文本框，Enter 键重问。 */
+function msgEdit(btn) {
+  if (isStreaming) return;
+  const el     = _msgEl(btn);
+  const bubble = el.querySelector('.msg-bubble');
+  const raw    = el.dataset.rawText || bubble?.innerText?.trim() || '';
+
+  const ta = document.createElement('textarea');
+  ta.className = 'msg-edit-area';
+  ta.value     = raw;
+  ta.rows      = Math.min(6, (raw.match(/\n/g) || []).length + 1 || 1);
+
+  // 用 textarea 替换 bubble
+  bubble.replaceWith(ta);
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+
+  // Enter 确认，Escape 取消
+  ta.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const newText = ta.value.trim();
+      if (!newText) return;
+      ta.replaceWith(bubble);  // 恢复 bubble（下面会移除 el）
+      msgReaskWithText(el, newText);
+    } else if (e.key === 'Escape') {
+      ta.replaceWith(bubble);
+    }
+  });
+}
+
+/** 以指定文本重问，并用新结果覆盖旧 assistant 回答。 */
+async function msgReaskWithText(userEl, newText) {
+  const next = userEl.nextElementSibling;
+  if (next && next.classList.contains('assistant')) {
+    _removeFromSession(next);
+    next.remove();
+  }
+  _removeFromSession(userEl);
+  userEl.remove();
+
+  // 必须 await：确保后端清除最后一个 user-turn（含工具调用多条记录）后，再发新消息
+  // 否则新消息到达时旧 user 消息仍在 LLM history，导致 LLM 用文字代替工具响应
+  const sid = currentSessionId;
+  try { await fetch(`/api/sessions/${sid}/messages/last`, { method: 'DELETE' }); }
+  catch (e) { /* 静默失败 */ }
+
+  const area  = isCanvasMode ? 'panel' : 'full';
+  const input = document.getElementById(area + '-input');
+  if (input) { input.value = newText; sendMessage(area); }
+}
+
+/** 复制 assistant 消息文本到剪贴板。 */
+function msgCopy(btn) {
+  const bubble = _msgEl(btn)?.querySelector('.msg-bubble');
+  if (!bubble) return;
+  const text = bubble.innerText || bubble.textContent || '';
+  navigator.clipboard.writeText(text).then(() => {
+    // 短暂提示已复制
+    btn.style.color = 'var(--success, #4fbf8f)';
+    setTimeout(() => { btn.style.color = ''; }, 1200);
+  });
+}
 
 // ── Live progress helpers ─────────────────────────────────────────────────
 
@@ -3930,7 +4379,8 @@ function renderSessions() {
 
   const all    = Object.values(sessionData);
   const main   = sessionData['main'];
-  const others = all.filter(s => s.id !== 'main');
+  // app sessions (type==='app') never appear in the task panel
+  const others = all.filter(s => s.id !== 'main' && s.type !== 'app');
 
   let filtered = activeCategory === 'all' ? others : others.filter(s => s.type === activeCategory);
 
@@ -4480,18 +4930,48 @@ function selectNode(id) {
   selectedNodeId = id;
   renderGraph();
   showNodeDetail(id);
+  // If schema view is active, scroll to and highlight the class block
+  if (_currentOntologyView === 'schema') focusSchemaBlock(id);
 }
 
 function selectEnum(id) {
   selectedNodeId = id;
   renderOutline();  // update active state in left panel
   showNodeDetail(id);
+  if (_currentOntologyView === 'schema') focusSchemaBlock(id);
 }
 
 function deselectNode() {
   selectedNodeId = null;
   renderGraph();
   hideNodeDetail();
+}
+
+/**
+ * Scroll the schema editor to the outline block for the given class name,
+ * and place the cursor at the start of that block.
+ * If schema view is not yet active, switch to it first.
+ */
+function focusSchemaBlock(className) {
+  if (!className) return;
+  if (_currentOntologyView !== 'schema') {
+    switchOntologyView('schema');
+    // Wait for editor to initialize, then focus
+    setTimeout(() => focusSchemaBlock(className), 350);
+    return;
+  }
+  if (!_schemaEditor) return;
+  const code = _schemaEditor.getValue();
+  // Find "outline ClassName = " or "outline ClassName=" pattern
+  const pattern = new RegExp(`^outline\\s+${className}\\s*=`, 'm');
+  const match = pattern.exec(code);
+  if (!match) return;
+
+  const linesBefore = code.substring(0, match.index).split('\n');
+  const lineNumber  = linesBefore.length; // 1-based
+  _schemaEditor.revealLineInCenter(lineNumber);
+  _schemaEditor.setPosition({ lineNumber, column: 1 });
+  _schemaEditor.focus();
 }
 
 function locateNode(id) {
@@ -4529,6 +5009,17 @@ function showNodeDetail(id) {
   const isLive = node.phase === 'live';
   badge.textContent = isEnum ? '枚举' : '实体';
   badge.className   = 'nd-type-badge ' + (isEnum ? 'enum' : 'entity');
+
+  // "Open in Schema" shortcut button (only when schemaCode exists)
+  const schemaBtn = document.getElementById('nd-open-schema');
+  if (schemaBtn) {
+    if (node.schemaCode) {
+      schemaBtn.style.display = '';
+      schemaBtn.onclick = () => focusSchemaBlock(node.id);
+    } else {
+      schemaBtn.style.display = 'none';
+    }
+  }
 
   const body = document.getElementById('nd-body');
   body.innerHTML = '';
@@ -4988,6 +5479,76 @@ function appendAssistantMessage(text) {
   if (text) addMessage('assistant', text);
 }
 
+/**
+ * 在当前 chat panel 里插入 sys.* inline 交互卡片。
+ * 用于 LLM 触发的 sys.confirm/alert/choice——不弹 modal，不切换 session。
+ * canvas 模式下插入侧边面板，chat 模式下插入主消息区。
+ */
+function addSysInlineCard(widgetType, data) {
+  const container = activeMessages();
+  if (!container) return;
+
+  const isDanger = !!data.danger;
+  const cardEl = document.createElement('div');
+  cardEl.className = `msg assistant`;
+
+  // Build inner HTML
+  let btnsHtml = '';
+  if (widgetType === 'sys.confirm') {
+    const mode = data.mode || 'yes_no';
+    const [yesLabel, noLabel] = mode === 'ok_cancel' ? ['确定', '取消'] : ['确认删除', '取消'];
+    const yesJson = JSON.stringify(data.yes || {}).replace(/"/g, '&quot;');
+    const noJson  = JSON.stringify(data.no  || {}).replace(/"/g, '&quot;');
+    btnsHtml = `
+      <button class="sys-inline-btn secondary" onclick="sysInlineAction(this.closest('.sys-inline-card'),false,null,'${noJson}')">${noLabel}</button>
+      <button class="sys-inline-btn ${isDanger ? 'danger' : 'primary'}" onclick="sysInlineAction(this.closest('.sys-inline-card'),true,'${yesJson}',null)">${yesLabel}</button>`;
+  } else if (widgetType === 'sys.alert') {
+    btnsHtml = `<button class="sys-inline-btn primary" onclick="sysInlineAction(this.closest('.sys-inline-card'),true,null,null)">确定</button>`;
+  } else if (widgetType === 'sys.choice') {
+    (data.options || []).forEach(opt => {
+      const optJson = JSON.stringify(opt).replace(/"/g, '&quot;');
+      btnsHtml += `<button class="sys-inline-btn ${opt.tool ? 'primary' : 'secondary'}" onclick="sysInlineAction(this.closest('.sys-inline-card'),${!!opt.tool},'${optJson}',null)">${opt.label || ''}</button>`;
+    });
+  }
+
+  cardEl.innerHTML = `
+    <div class="msg-bubble">
+      <div class="sys-inline-card${isDanger ? ' danger' : ''}">
+        ${data.title ? `<div class="sys-inline-title">${data.title}</div>` : ''}
+        ${data.message ? `<div class="sys-inline-message">${data.message}</div>` : ''}
+        <div class="sys-inline-buttons">${btnsHtml}</div>
+      </div>
+    </div>`;
+
+  container.appendChild(cardEl);
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sysInlineAction(cardEl, confirmed, yesJsonStr, noJsonStr) {
+  if (!cardEl) return;
+  cardEl.querySelectorAll('button').forEach(b => b.disabled = true);
+
+  try {
+    if (confirmed && yesJsonStr) {
+      const yes = JSON.parse(yesJsonStr.replace(/&quot;/g, '"'));
+      if (yes.tool) {
+        await memProxyTool(yes.tool, yes.args || {});
+        // 操作完成后，若记忆管理面板当前可见，用 loadMemScopeData() 刷新数据
+        if (activeWidgetType === 'memory-manager') {
+          await loadMemScopeData();
+        }
+      }
+      cardEl.innerHTML = '<div class="sys-inline-done">✓ 操作已完成</div>';
+    } else {
+      const no = noJsonStr ? JSON.parse(noJsonStr.replace(/&quot;/g, '"')) : null;
+      const msg = no && no.message ? no.message : '已取消';
+      cardEl.innerHTML = `<div class="sys-inline-done">${msg}</div>`;
+    }
+  } catch(e) {
+    cardEl.innerHTML = '<div class="sys-inline-done" style="color:var(--danger)">操作失败</div>';
+  }
+}
+
 // ── AIPP System Widget: sys.confirm / sys.alert / sys.prompt ────────────────
 
 let _sysModalResolve = null;
@@ -5087,6 +5648,7 @@ async function handleSysWidgetCommand(widgetType, data) {
   if (widgetType === 'sys.confirm') {
     if (confirmed && data.yes && data.yes.tool) {
       await memProxyTool(data.yes.tool, data.yes.args || {});
+      if (activeWidgetType === 'memory-manager') await loadMemScopeData();
     } else if (!confirmed && data.no && data.no.message) {
       appendAssistantMessage(data.no.message);
     }
@@ -5153,40 +5715,8 @@ document.addEventListener('click', function(e) {
 }, true);
 
 async function loadApps() {
-  document.getElementById('apps-loading').style.display = 'flex';
-  document.getElementById('apps-grid').innerHTML = '';
-  try {
-    const data = await fetch('/api/apps').then(r => r.json());
-    const apps  = data.apps || [];
-    const grid  = document.getElementById('apps-grid');
-    grid.innerHTML = '';
-    if (apps.length === 0) {
-      grid.innerHTML = '<div style="color:var(--text-dim);font-size:12px;text-align:center;padding:24px">暂无已注册应用</div>';
-    } else {
-      apps.forEach(app => {
-        const card = document.createElement('div');
-        card.className = 'app-card' + (app.is_active === false ? ' inactive' : '');
-        const color = app.app_color || '#6b7a9e';
-        const iconHtml = app.app_icon
-          ? `<div class="app-icon" style="color:${color}">${app.app_icon}</div>`
-          : `<div class="app-icon" style="color:${color}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>`;
-        card.innerHTML = `${iconHtml}
-          <div class="app-info">
-            <div class="app-name">${app.app_name || app.app_id}</div>
-            <div class="app-desc">${app.app_description || ''}</div>
-          </div>`;
-        if (app.is_active !== false && app.main_widget_type) {
-          card.onclick = () => { closeAppsPanel(); _currentAppId = app.app_id; openAppDirect(app.app_id); };
-        }
-        grid.appendChild(card);
-      });
-    }
-    _appsLoaded = true;
-  } catch(e) {
-    document.getElementById('apps-grid').innerHTML =
-      '<div style="color:var(--danger);font-size:12px;padding:16px">加载失败：' + e.message + '</div>';
-  }
-  document.getElementById('apps-loading').style.display = 'none';
+  document.getElementById('apps-iframe').src = '/api/system/widgets/app-list';
+  _appsLoaded = true;
 }
 
 function scrollToBottom() {
@@ -5196,13 +5726,27 @@ function scrollToBottom() {
 
 // 从 Apps 面板直接打开 app（绕过 LLM，调用 /api/apps/{appId}/open）
 // toolName/toolArgs 可选：直接调用指定 skill（如点击世界卡片进入世界），与 LLM 路径一致
-async function openAppDirect(appId, toolName, toolArgs) {
-  // App panel 是全局导航：若当前在 canvas mode，先退回主 session，
-  // 再在主 session 的 chat 里显示（避免污染 canvas session 的对话历史）
+async function openAppDirect(appId, toolName, toolArgs, existingSessionId) {
+  // widget 触发跳转时，将当前 session 最后一个 widget 标记为"已处理"
+  // 此时 currentSessionId 仍是源 session（主 session），需在切换前执行
+  markLastWidgetProcessed();
+
+  // App panel 是全局导航：若当前在 canvas mode，先退回主 session
   if (isCanvasMode) exitCanvasMode();
 
+  // 若指定了已有 world session，先切换过去，避免 spinner 污染当前 session
+  if (existingSessionId && sessionData[existingSessionId] && currentSessionId !== existingSessionId) {
+    await switchSession(existingSessionId);
+  } else {
+    // 若 app 已有专属 session（app-{appId}），先切换过去，避免 spinner 污染当前 session
+    const appSessionId = 'app-' + appId;
+    if (sessionData[appSessionId] && currentSessionId !== appSessionId) {
+      await switchSession(appSessionId);
+    }
+  }
+
   const uiSessionId = currentSessionId || 'main';
-  // Show a "opening..." indicator in chat
+  // Show a "opening..." indicator in the (now correct) session
   const msgDiv = addMessage('assistant', '');
   const spinner = document.createElement('div');
   spinner.style.cssText = 'display:flex;align-items:center;gap:8px;color:var(--text-dim);font-size:13px;padding:4px 0';
@@ -5211,8 +5755,10 @@ async function openAppDirect(appId, toolName, toolArgs) {
   scrollToBottom();
 
   try {
-    const reqBody = { session_id: uiSessionId };
+    // 传入 existingSessionId（若有）让 backend 使用对应世界的 agent loop
+    const reqBody = {};
     if (toolName) { reqBody.tool_name = toolName; reqBody.tool_args = toolArgs || {}; }
+    if (existingSessionId) reqBody.session_id = existingSessionId;
     const resp = await fetch(`/api/apps/${appId}/open`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -5241,6 +5787,11 @@ async function openAppDirect(appId, toolName, toolArgs) {
     // Remove the placeholder msg if it ended up empty
     if (!msgDiv.textContent.trim() && !msgDiv.querySelector('iframe')) {
       msgDiv.remove();
+      // Also remove from sessionData to avoid stale messages
+      const prevSess = sessionData[uiSessionId];
+      if (prevSess && prevSess.messages && prevSess.messages.length > 0) {
+        prevSess.messages.pop();
+      }
     }
   } catch(e) {
     spinner.innerHTML = '<span style="color:var(--danger)">打开失败：' + e.message + '</span>';
@@ -5249,13 +5800,48 @@ async function openAppDirect(appId, toolName, toolArgs) {
 
 // 处理 html_widget iframe 发来的 postMessage（卡片交互 → 进入世界 / 新建世界）
 window.addEventListener('message', function(event) {
-  if (!event.data || event.data.type !== 'action') return;
+  if (!event.data) return;
+
+  // ── app list widget：点击应用卡片 ──────────────────────────────────────
+  if (event.data.type === 'openApp') {
+    const { appId } = event.data;
+    if (!appId) return;
+    closeAppsPanel();           // panel 模式下关闭面板（chat 模式下安全忽略）
+    _currentAppId = appId;
+    openAppDirect(appId);
+    return;
+  }
+
+  // ── app list widget：iframe 上报内容高度，精确调整 panel 尺寸 ─────────
+  if (event.data.type === 'appListHeight') {
+    const panel  = document.getElementById('apps-panel');
+    const iframe = document.getElementById('apps-iframe');
+    if (!panel || !iframe) return;
+    const bottomPx   = parseFloat(panel.style.getPropertyValue('--apps-panel-bottom')) || 54;
+    const headerH    = 34;   // .apps-header 32px + 1px border
+    const maxPanelH  = window.innerHeight - bottomPx - 8;
+    const contentH   = event.data.height || 0;
+    const idealH     = contentH + headerH;
+    const finalH     = Math.min(idealH, maxPanelH);
+    panel.style.height  = finalH + 'px';
+    iframe.style.height = (finalH - headerH) + 'px';
+    return;
+  }
+
+  // ── canvas / html_widget 内部动作（type: 'action'）────────────────────
+  if (event.data.type !== 'action') return;
   const { tool, args } = event.data;
   if (!tool) return;
-  // 统一通过 /api/apps/{appId}/open 调用（与 LLM 路径一致，注入 _context）
-  // 从当前活跃 app 获取 appId（若无活跃 app，默认 'world'）
   const appId = _currentAppId || 'world';
-  openAppDirect(appId, tool, args || {});
+
+  // 若点击的是已有 world（args 含 session_id = canvas_session_id），
+  // 找到对应 UiSession，先切换过去再打开，避免 spinner 污染当前 session。
+  let existingUiSessionId = null;
+  if (args && args.session_id) {
+    const found = Object.values(sessionData).find(s => s.canvasSessionId === args.session_id);
+    if (found) existingUiSessionId = found.id;
+  }
+  openAppDirect(appId, tool, args || {}, existingUiSessionId);
 });
 
 /** 当前活跃 app（点击 Apps 面板时设置，用于 postMessage 路由） */
@@ -5303,9 +5889,143 @@ function renderHtmlWidget(json, containerMsgEl) {
   containerMsgEl.classList.add('html-widget-msg');
   containerMsgEl.appendChild(frameContainer);
 
+  // 注入 widget 操作按钮（仅删除）
+  _injectWidgetActions(containerMsgEl);
+
+  // 保存 widgetJson 到 data 属性，供 saveDomMessages 读取（session 切换时保持状态）
+  containerMsgEl.dataset.widgetJson = typeof json === 'string' ? json : JSON.stringify(json);
+  delete containerMsgEl.dataset.processed; // 确保未处理状态
+
   setIframeSrcdoc(iframe, html, height);
   _lastHtmlWidgetEl = containerMsgEl;
+  _lastHtmlWidgetSessionId = currentSessionId;
   scrollToBottom();
+}
+
+/**
+ * 从 widgetJson 中提取可读标题，用于"已处理"卡片的定语。
+ * 优先使用 json.title 字段，降级从 HTML 的 <title> / <h2> 中提取。
+ */
+function _extractWidgetTitle(widgetJson) {
+  try {
+    const data = typeof widgetJson === 'string' ? JSON.parse(widgetJson) : widgetJson;
+    if (data.title) return data.title;
+    // 降级：从 HTML 中找 <title> 或第一个 <h2>
+    const html = data.html || '';
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (titleMatch) return titleMatch[1].trim();
+    const h2Match = html.match(/<h[12][^>]*>([^<]+)<\/h[12]>/i);
+    if (h2Match) return h2Match[1].replace(/<[^>]+>/g, '').trim();
+  } catch (e) {}
+  return '';
+}
+
+/**
+ * 构建"已处理"静态卡片，用于 widget 触发 canvas 切换后返回主 session 时显示。
+ * 不再渲染 iframe，只显示一个轻量提示条。
+ */
+function _buildProcessedCard(widgetJson) {
+  const title = _extractWidgetTitle(widgetJson);
+  const label = title ? `${title} · 已在界面上打开` : '已在界面上打开';
+  const el = document.createElement('div');
+  el.className = 'msg assistant widget-processed-msg';
+  // 保存状态供 saveDomMessages 读取
+  el.dataset.widgetJson = typeof widgetJson === 'string' ? widgetJson : JSON.stringify(widgetJson);
+  el.dataset.processed  = 'true';
+  const av = document.createElement('div');
+  av.className = 'msg-avatar';
+  av.textContent = 'W';
+  const body = document.createElement('div');
+  body.className = 'msg-body';
+  body.innerHTML = `
+    <div class="widget-processed-card">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 8l4 4 8-8"/>
+      </svg>
+      <span>${label}</span>
+    </div>`;
+  // 保留删除功能
+  const icoTrash = `<svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5h10M5.5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M5.5 6v4.5M8.5 6v4.5M3 3.5l.7 7.2a.5.5 0 00.5.3h5.6a.5.5 0 00.5-.3L11 3.5"/></svg>`;
+  const actions = document.createElement('div');
+  actions.className = 'msg-actions';
+  actions.innerHTML = `<button class="msg-action-btn" title="删除" onclick="msgDelete(this)">${icoTrash}</button>`;
+  body.appendChild(actions);
+  el.appendChild(av);
+  el.appendChild(body);
+  return el;
+}
+
+/**
+ * 当用户通过 widget 触发 canvas 跳转时，将当前 session 中最后一个 widget 标记为"已处理"。
+ * 跳转前调用（此时 currentSessionId 仍是源 session）。
+ */
+let _lastHtmlWidgetSessionId = null; // 记录 widget 所属的 session
+function markLastWidgetProcessed() {
+  if (!_lastHtmlWidgetEl || !_lastHtmlWidgetSessionId) return;
+  const sid = _lastHtmlWidgetSessionId;
+  const sess = sessionData[sid];
+  if (sess && sess.messages) {
+    // 找到该 widget 对应的 sessionData 条目（从末尾查找第一个 widgetJson 且未处理的）
+    for (let i = sess.messages.length - 1; i >= 0; i--) {
+      if (sess.messages[i].widgetJson && !sess.messages[i].processed) {
+        sess.messages[i].processed = true;
+        break;
+      }
+    }
+  }
+  // 立即更新 DOM（如果还在当前视图）
+  _applyProcessedStyle(_lastHtmlWidgetEl);
+  _lastHtmlWidgetEl = null;
+  _lastHtmlWidgetSessionId = null;
+}
+
+/** 将活跃 widget 容器的 DOM 替换为已处理样式（不重建 iframe）。 */
+function _applyProcessedStyle(el) {
+  if (!el) return;
+  el.classList.remove('html-widget-msg');
+  el.classList.add('widget-processed-msg');
+  // 更新 data 属性，让 saveDomMessages 正确保存已处理状态
+  el.dataset.processed = 'true';
+  // 提取标题并构建卡片文字
+  const title = _extractWidgetTitle(el.dataset.widgetJson || '');
+  const label = title ? `${title} · 已在界面上打开` : '已在界面上打开';
+  // 清空 iframe 容器，换为已处理卡片
+  const frameContainer = el.querySelector('.widget-frame-container') ||
+                         el.querySelector('.html-widget-frame');
+  if (frameContainer) {
+    frameContainer.replaceWith(Object.assign(document.createElement('div'), {
+      className: 'widget-processed-card',
+      innerHTML: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8l4 4 8-8"/></svg><span>${label}</span>`
+    }));
+  }
+  // 移除 widget-actions，保留 msg-actions（含删除）
+  const wa = el.querySelector('.widget-actions');
+  if (wa) wa.remove();
+}
+
+/** 在 widget 容器右上角注入删除按钮（若尚未注入）。 */
+function _injectWidgetActions(containerMsgEl) {
+  if (containerMsgEl.querySelector('.widget-actions')) return; // 幂等
+  const icoTrash = `<svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5h10M5.5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M5.5 6v4.5M8.5 6v4.5M3 3.5l.7 7.2a.5.5 0 00.5.3h5.6a.5.5 0 00.5-.3L11 3.5"/></svg>`;
+  const bar = document.createElement('div');
+  bar.className = 'widget-actions';
+  bar.innerHTML = `<button class="msg-action-btn" title="删除" onclick="msgDeleteWidget(this)">${icoTrash}</button>`;
+  containerMsgEl.appendChild(bar);
+}
+
+/** 删除整个 widget 消息。 */
+function msgDeleteWidget(btn) {
+  if (isStreaming) return;
+  const el = btn.closest('.msg');
+  if (!el) return;
+  const idx = _removeFromSession(el);
+  el.remove();
+  // widget 不在 DB 里，range 接口调用无害（服务端找不到会静默忽略）
+  if (idx >= 0) {
+    fetch(`/api/sessions/${currentSessionId}/messages/range?from=${idx}&count=1`,
+      { method: 'DELETE' }).catch(() => {});
+  }
 }
 
 function setIframeSrcdoc(iframe, html, height) {
@@ -5406,10 +6126,10 @@ let _widgetManifests = {};
       const resp = await fetch(`/api/sessions/${currentSessionId}/messages`);
       if (resp.ok) {
         const { messages } = await resp.json();
-        initSess.messages = (messages || []).map(m => ({
-          role: m.role,
-          html: md(m.content),
-        }));
+        initSess.messages = (messages || []).map(m => {
+          if (m.role === 'widget') return { role: 'assistant', widgetJson: m.widgetJson };
+          return { role: m.role, html: md(m.content) };
+        });
         // If we loaded real history, don't show the welcome hint
         if (initSess.messages.length > 0) initSess.showWelcome = false;
       }

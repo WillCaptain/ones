@@ -153,8 +153,16 @@ public class MemoryToolsController {
         graph.put("memories", memories);
         graph.put("session_name", "记忆管理");
 
-        return ok(Map.of("ok", true, "graph", graph,
-                "message", "Memory panel opened. Found " + memories.size() + " memories."));
+        // session_type=app 告知 world-one 路由到专属 app session（app-memory-one），
+        // 不在 Task Panel 创建新条目，不污染主对话历史。
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("ok",           true);
+        resp.put("session_type", "app");
+        resp.put("app_id",       "memory-one");
+        resp.put("session_name", "记忆管理");
+        resp.put("graph",        graph);
+        resp.put("message",      "Memory panel opened. Found " + memories.size() + " memories.");
+        return ok(resp);
     }
 
     // ── 辅助 ──────────────────────────────────────────────────────────────

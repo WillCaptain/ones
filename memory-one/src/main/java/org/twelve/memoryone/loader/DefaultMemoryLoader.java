@@ -61,6 +61,98 @@ public class DefaultMemoryLoader {
         return new MemoryLoadResult(format(all), all.stream().map(Memory::id).toList());
     }
 
+    /**
+     * 子 session（task/event）完整上下文。
+     *
+     * <p>组成 = GLOBAL(3类) + WORKSPACE(3类) + SESSION(5类)
+     * <ul>
+     *   <li>GLOBAL SEMANTIC/PROCEDURAL/RELATION：用户身份、全局约定、全局关系网络</li>
+     *   <li>WORKSPACE SEMANTIC/PROCEDURAL/RELATION：当前任务/世界的领域知识（workspaceId 匹配）</li>
+     *   <li>SESSION 全5类：当前 session 专属目标、事件、关系等</li>
+     * </ul>
+     */
+    public MemoryLoadResult loadSessionContext(String userId, String agentId,
+                                               String sessionId, String workspaceId,
+                                               String userMessage) {
+        List<Memory> all = new ArrayList<>();
+
+        // ── GLOBAL 3类（用户全局知识，精确可引用条目）────────────────────────
+        all.addAll(queryActive(userId, agentId, null, null, MemoryType.SEMANTIC,   MemoryScope.GLOBAL, 0.4f, 20));
+        all.addAll(queryActive(userId, agentId, null, null, MemoryType.PROCEDURAL, MemoryScope.GLOBAL, 0f,   10));
+        all.addAll(queryActive(userId, agentId, null, null, MemoryType.RELATION,   MemoryScope.GLOBAL, 0.5f, 10));
+
+        // ── WORKSPACE 3类（当前任务/世界专属知识，多人协作共享）─────────────
+        if (workspaceId != null && !workspaceId.isBlank()) {
+            all.addAll(queryActive(userId, agentId, null, workspaceId, MemoryType.SEMANTIC,   MemoryScope.WORKSPACE, 0f, 20));
+            all.addAll(queryActive(userId, agentId, null, workspaceId, MemoryType.PROCEDURAL, MemoryScope.WORKSPACE, 0f, 10));
+            all.addAll(queryActive(userId, agentId, null, workspaceId, MemoryType.RELATION,   MemoryScope.WORKSPACE, 0f, 10));
+        }
+
+        // ── SESSION 全5类（调用方保证 sessionId != null）───────────────────
+        all.addAll(queryActive(userId, agentId, sessionId, null, MemoryType.GOAL,       MemoryScope.SESSION, 0f,  5));
+        all.addAll(queryActive(userId, agentId, sessionId, null, MemoryType.SEMANTIC,   MemoryScope.SESSION, 0f, 20));
+        all.addAll(queryActive(userId, agentId, sessionId, null, MemoryType.PROCEDURAL, MemoryScope.SESSION, 0f, 10));
+        all.addAll(queryActive(userId, agentId, sessionId, null, MemoryType.RELATION,   MemoryScope.SESSION, 0f, 10));
+        all.addAll(topN(queryActive(userId, agentId, sessionId, null, MemoryType.EPISODIC, MemoryScope.SESSION, 0f, 30), 10));
+
+        // ── entity-anchored 补充（与本轮 userMessage 相关的关系记忆）──────────
+        if (userMessage != null && !userMessage.isBlank()) {
+            List<Memory> entityRel = loadEntityRelations(userId, agentId, sessionId, workspaceId, userMessage);
+            for (Memory m : entityRel) {
+                if (!containsId(all, m.id())) all.add(m);
+            }
+        }
+
+        if (all.isEmpty()) return MemoryLoadResult.EMPTY;
+        store.recordAccess(all.stream().map(Memory::id).toList());
+        return new MemoryLoadResult(formatSections(all), all.stream().map(Memory::id).toList());
+    }
+
+    /** Format for session context (global structural + workspace + session-specific). */
+    private String formatSections(List<Memory> memories) {
+        List<Memory> global    = memories.stream().filter(m -> m.scope() == MemoryScope.GLOBAL).toList();
+        List<Memory> workspace = memories.stream().filter(m -> m.scope() == MemoryScope.WORKSPACE).toList();
+        List<Memory> session   = memories.stream().filter(m -> m.scope() == MemoryScope.SESSION).toList();
+
+        Map<MemoryType, List<Memory>> gByType = global.stream()
+                .collect(java.util.stream.Collectors.groupingBy(Memory::type));
+        Map<MemoryType, List<Memory>> wByType = workspace.stream()
+                .collect(java.util.stream.Collectors.groupingBy(Memory::type));
+        Map<MemoryType, List<Memory>> sByType = session.stream()
+                .collect(java.util.stream.Collectors.groupingBy(Memory::type));
+
+        StringBuilder sb = new StringBuilder();
+        int budget = 1800;
+
+        // GLOBAL 3类
+        if (!global.isEmpty()) {
+            sb.append("### 全局事实\n");
+            budget = appendSection(sb, null, gByType.get(MemoryType.SEMANTIC),   budget);
+            budget = appendSection(sb, null, gByType.get(MemoryType.PROCEDURAL), budget);
+            budget = appendRelationSection(sb, gByType.get(MemoryType.RELATION), budget);
+        }
+
+        // WORKSPACE 3类
+        if (!workspace.isEmpty()) {
+            sb.append("### 任务知识\n");
+            budget = appendSection(sb, null, wByType.get(MemoryType.SEMANTIC),   budget);
+            budget = appendSection(sb, null, wByType.get(MemoryType.PROCEDURAL), budget);
+            budget = appendRelationSection(sb, wByType.get(MemoryType.RELATION), budget);
+        }
+
+        // SESSION 5类
+        if (!session.isEmpty()) {
+            sb.append("### 会话上下文\n");
+            budget = appendSection(sb, null, sByType.get(MemoryType.GOAL),       budget);
+            budget = appendSection(sb, null, sByType.get(MemoryType.SEMANTIC),   budget);
+            budget = appendSection(sb, null, sByType.get(MemoryType.PROCEDURAL), budget);
+            budget = appendRelationSection(sb, sByType.get(MemoryType.RELATION), budget);
+                     appendSection(sb, null, sByType.get(MemoryType.EPISODIC),   budget);
+        }
+
+        return sb.toString().trim();
+    }
+
     public List<Memory> loadGoals(String userId, String agentId, String sessionId) {
         if (sessionId == null) return List.of();
         return queryActive(userId, agentId, sessionId, null, MemoryType.GOAL, MemoryScope.SESSION, 0f, 10);
@@ -148,7 +240,7 @@ public class DefaultMemoryLoader {
 
     private int appendSection(StringBuilder sb, String title, List<Memory> items, int budget) {
         if (items == null || items.isEmpty() || budget <= 0) return budget;
-        sb.append("### ").append(title).append("\n");
+        if (title != null) sb.append("### ").append(title).append("\n");
         for (Memory m : items) {
             String line = formatLine(m) + "\n";
             if (budget - line.length() < 0) break;
