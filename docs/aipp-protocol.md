@@ -131,6 +131,36 @@ GET /api/skills
 - `canvas.widget_type`：触发的 widget 类型（对应 Widget Manifest 中的 type）
 - `canvas.action`：预期的 canvas 动作（open / patch / replace / close）
 
+### 3.1.1 Session 扩展语义（session 与 canvas 正交）
+
+Skill 可选声明 `session` 扩展，session 语义与 canvas 是否触发互不干涉：
+
+```json
+{
+  "name": "world_design",
+  "canvas": { "triggers": true, "widget_type": "entity-graph" },
+  "session": {
+    "session_type": "app",
+    "app_id":       "world",
+    "creates_on":   "name",
+    "loads_on":     "session_id"
+  }
+}
+```
+
+路由规则：
+
+- 命中 `session_type=app` 且响应无 `session_id`：按 `app_id` 路由（单实例 app session）
+- 命中 `session_type=app` 且响应有 `session_id`：按 `(app_id, session_id)` 路由（多实例 app session）
+- 命中 `creates_on/loads_on`：由 world-one 执行 find-or-create，并复用已有会话（不重复创建）
+
+归一规则（不嵌套）：
+
+- 若当前 widget 已进入 new-session 上下文，在该上下文再次进入 new-session widget，不新建 session
+- 仅执行视图层覆盖（`canvas.open/replace`），并保留返回路径
+
+> App Session 不进入 Task Panel；Task/Event 仍使用独立面板。
+
 ---
 
 ### 3.2 Widget Manifest（界面组件目录）

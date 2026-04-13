@@ -64,7 +64,7 @@ public class MemorySkillsController {
             ),
             "required",   List.of()
         ));
-        skill.put("prompt",      "");
+        skill.put("prompt",      "由 world-one host 在每轮对话开始前自动调用；注入 request_context 后执行 memory_load，无需 LLM 推理。");
         skill.put("tools",       List.of("memory_load"));
         skill.put("canvas",         Map.of("triggers", false));
         skill.put("inject_context", Map.of("request_context", true));
@@ -88,7 +88,7 @@ public class MemorySkillsController {
             "properties", Map.of(),
             "required",   List.of()
         ));
-        skill.put("prompt",      "");
+        skill.put("prompt",      "由 world-one host 在每轮结束后自动调用；注入 turn_messages 后执行 memory_consolidate，无需 LLM 推理。");
         skill.put("tools",       List.of("memory_consolidate"));
         skill.put("canvas",         Map.of("triggers", false));
         skill.put("inject_context", Map.of("turn_messages", true));
@@ -122,7 +122,10 @@ public class MemorySkillsController {
                              "根据用户意图传入可选的 scope 过滤参数（ALL/GLOBAL/WORKSPACE/SESSION）和 keyword。" +
                              "面板打开后，用户可在 UI 中直接管理记忆；如用户有具体操作请求，调用对应的 memory_* 工具处理。");
         skill.put("tools",   List.of("memory_view"));
-        skill.put("session", Map.of("creates_on", "scope"));
+        skill.put("session", Map.of(
+            "session_type", "app",
+            "app_id", "memory-one"
+        ));
         return skill;
     }
 

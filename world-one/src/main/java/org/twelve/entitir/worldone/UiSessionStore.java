@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.twelve.entitir.worldone.db.UiSessionEntity;
 import org.twelve.entitir.worldone.db.UiSessionRepository;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -30,8 +31,6 @@ public class UiSessionStore {
                     "main", "conversation", "World One",
                     null, "main", Instant.now()));
         }
-        // 确保所有 AIPP app 的 app session 存在（固定 id = app-{appId}）
-        ensureAppIfAbsent("memory-one", "记忆管理");
     }
 
     // ── 查询 ────────────────────────────────────────────────────────────────
@@ -63,11 +62,14 @@ public class UiSessionStore {
         return repo.findById(id).map(this::toRecord).orElse(null);
     }
 
-    /** 按 canvasSessionId（app 侧设计会话 ID）查找活跃 UiSession，用于"进入已有世界"的幂等判断。 */
+    /** 按 canvasSessionId（app 侧设计会话 ID）查找活跃 UiSession，用于"进入已有世界"的幂等判断。
+     *  主 session（id="main"）永远不会被此方法返回，避免历史脏数据导致覆写 main。 */
     public UiSession findByCanvasSessionId(String canvasSessionId) {
         if (canvasSessionId == null || canvasSessionId.isBlank()) return null;
         return repo.findAllByOrderByCreatedAtAsc().stream()
-                .filter(e -> canvasSessionId.equals(e.getCanvasSessionId()) && !isArchived(e))
+                .filter(e -> !"main".equals(e.getId())
+                        && canvasSessionId.equals(e.getCanvasSessionId())
+                        && !isArchived(e))
                 .map(this::toRecord)
                 .findFirst()
                 .orElse(null);
@@ -84,29 +86,40 @@ public class UiSessionStore {
         return toRecord(e);
     }
 
-    /**
-     * 幂等创建/获取 app session（固定 id = "app-{appId}"）。
-     *
-     * <p>app session 没有 status（不归档、不删除），每个 app 全局只有一个。
-     * agentSessionId 也固定为 "app-{appId}"，保证 LLM 上下文隔离。
-     * 若已存在但 type 错误（旧版本遗留数据），自动修正 type 和 agentSessionId。
-     */
+    /** 幂等创建/获取 app session（单实例 app）。 */
     @Transactional
     public UiSession ensureApp(String appId, String name) {
-        String id = "app-" + appId;
+        return ensureApp(appId, name, null);
+    }
+
+    /**
+     * 幂等创建/获取 app session（支持多实例）。
+     *
+     * <p>路由键规则：
+     * <ul>
+     *   <li>instanceId 为空：id = app-{appId}（单实例）</li>
+     *   <li>instanceId 非空：id = app-{appId}-{deterministic_uuid(instanceId)}（多实例）</li>
+     * </ul>
+     */
+    @Transactional
+    public UiSession ensureApp(String appId, String name, String instanceId) {
+        String id = appSessionId(appId, instanceId);
+        String normalizedInstance = (instanceId == null || instanceId.isBlank()) ? null : instanceId;
         return repo.findById(id).map(e -> {
-            // Fix stale records: correct type/agentSessionId if wrong (migration from old 'task' type)
             boolean needsFix = !"app".equals(e.getType()) || !id.equals(e.getAgentSessionId());
             if (needsFix) {
                 e.setType("app");
                 e.setStatus(null);
                 e.setAgentSessionId(id);
-                repo.save(e);
             }
+            if (name != null && !name.isBlank()) e.setName(name);
+            e.setCanvasSessionId(normalizedInstance);
+            repo.save(e);
             return toRecord(e);
         }).orElseGet(() -> {
             UiSessionEntity e = new UiSessionEntity(
                     id, "app", name, null, id, Instant.now());
+            e.setCanvasSessionId(normalizedInstance);
             repo.save(e);
             return toRecord(e);
         });
@@ -123,9 +136,20 @@ public class UiSessionStore {
      */
     @Transactional
     public void updateCanvas(String id, String widgetType, String canvasSessionId) {
+        if ("main".equals(id)) return;
         repo.findById(id).ifPresent(e -> {
             e.setWidgetType(widgetType);
             e.setCanvasSessionId(canvasSessionId);
+            repo.save(e);
+        });
+    }
+
+    /** 更新 session 类型（如 chat 流程将 app 降级为 task）。主 session 不可更改。 */
+    @Transactional
+    public void updateType(String id, String newType) {
+        if ("main".equals(id)) return;
+        repo.findById(id).ifPresent(e -> {
+            e.setType(newType);
             repo.save(e);
         });
     }
@@ -172,17 +196,10 @@ public class UiSessionStore {
 
     // ── internal ─────────────────────────────────────────────────────────────
 
-    private void ensureAppIfAbsent(String appId, String name) {
-        String id = "app-" + appId;
-        repo.findById(id).ifPresentOrElse(e -> {
-            // Fix stale type if needed (migrate from old 'task' type)
-            if (!"app".equals(e.getType()) || !id.equals(e.getAgentSessionId())) {
-                e.setType("app");
-                e.setStatus(null);
-                e.setAgentSessionId(id);
-                repo.save(e);
-            }
-        }, () -> repo.save(new UiSessionEntity(id, "app", name, null, id, Instant.now())));
+    private static String appSessionId(String appId, String instanceId) {
+        if (instanceId == null || instanceId.isBlank()) return "app-" + appId;
+        UUID key = UUID.nameUUIDFromBytes((appId + "|" + instanceId).getBytes(StandardCharsets.UTF_8));
+        return "app-" + appId + "-" + key;
     }
 
     private boolean updateStatus(String id, String newStatus) {

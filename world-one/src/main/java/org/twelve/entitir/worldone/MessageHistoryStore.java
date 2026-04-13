@@ -43,9 +43,8 @@ public class MessageHistoryStore {
         return repo.findByAgentSessionIdOrderByCreatedAtAsc(agentSessionId)
                 .stream()
                 .<Map<String, Object>>map(e -> {
-                    // widget 消息是 UI 专用持久化，role 不合法，转为 assistant 占位
                     if ("widget".equals(e.getRole())) {
-                        return Map.of("role", "assistant", "content", "[已在界面上打开了对应的面板]");
+                        return Map.of("role", "assistant", "content", "OK");
                     }
                     return Map.of("role", e.getRole(), "content", e.getContent());
                 })
@@ -53,7 +52,29 @@ public class MessageHistoryStore {
     }
 
     /**
-     * 加载某 ui session 的消息（仅该 session 自身产生的消息）。
+     * 将某 ui session 最后一条 widget 消息标记为已处理（追加 "processed":true 到 JSON）。
+     * 前端切换到 task session 时调用，刷新后"已处理"卡片仍能正确显示。
+     */
+    @Transactional
+    public void markLastWidgetProcessed(String uiSessionId) {
+        List<SessionMessageEntity> msgs = repo.findByUiSessionIdOrderByCreatedAtAsc(uiSessionId);
+        for (int i = msgs.size() - 1; i >= 0; i--) {
+            SessionMessageEntity e = msgs.get(i);
+            if ("widget".equals(e.getRole())) {
+                String json = e.getContent();
+                // 在 JSON 末尾注入 "processed":true（兼容现有 JSON 格式）
+                if (json != null && json.trim().endsWith("}")) {
+                    String updated = json.trim().substring(0, json.trim().length() - 1)
+                            + ",\"processed\":true}";
+                    e.setContent(updated);
+                    repo.save(e);
+                }
+                return;
+            }
+        }
+    }
+
+    /** 加载某 ui session 的消息（仅该 session 自身产生的消息）。
      * 供 {@code GET /api/sessions/{id}/messages} 使用（UI 面板展示）。
      * <p>widget 消息以 {@code {"role":"widget","widgetJson":"..."}} 格式返回，
      * 前端识别后重建 iframe 而不是渲染为文本。
@@ -64,7 +85,14 @@ public class MessageHistoryStore {
                 .<Map<String, Object>>map(e -> {
                     if ("widget".equals(e.getRole())) {
                         // widget 消息：携带原始 JSON，前端重建 iframe
-                        return Map.of("role", "widget", "widgetJson", e.getContent());
+                        // 若已标记 processed，同步传出 processed:true 供前端显示已处理卡片
+                        String json = e.getContent();
+                        boolean processed = json != null && json.contains("\"processed\":true");
+                        Map<String, Object> m = new java.util.LinkedHashMap<>();
+                        m.put("role", "widget");
+                        m.put("widgetJson", json);
+                        if (processed) m.put("processed", true);
+                        return m;
                     }
                     return Map.of("role", e.getRole(), "content", e.getContent());
                 })

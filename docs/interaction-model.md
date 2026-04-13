@@ -17,12 +17,13 @@
 
 ## 一、Session 模型
 
-world-one 维护一个**并行 session 池**，三类 session 互不干扰：
+world-one 维护一个**并行 session 池**，四类 session 互不干扰：
 
 ```
 world-one session 池：
 
 [Chat Session]      用户正常对话（默认）
+[App Session M]     某个 app 的工作台（可单实例或多实例）
 [Task Session A]    内部创建的异步任务（LLM 或用户发起）
 [Event Session B]   外部事件触发（外部系统 POST /api/events）
 [Task Session C]    另一个任务...
@@ -33,10 +34,24 @@ world-one session 池：
 | 类型 | 创建方式 | 是否有 LLM 上下文 | 关闭后 |
 |------|---------|-----------------|--------|
 | **Chat Session** | 用户开启新对话 | ✅ 是 | 留存历史记录 |
+| **App Session** | 进入 app main widget 或 app 内声明 session 的 widget | ✅ 是 | 留存 app 内上下文 |
 | **Task Session** | world-one 内部（LLM/用户）发起 | 可选 | 留存执行结果 |
 | **Event Session** | 外部系统 POST `/api/events` | 可选 | 留存执行结果 |
 
 > **Task 和 Event 的区别仅在来源**：Task 是内部创建的，Event 是外部推入的。两者的 session 管理、widget 展示规则完全相同。
+
+### App Session 路由（1-N 自然形成）
+
+world-one 不预设“每个 app 只能 1 个”或“必须 N 个”。
+
+- `session_type=app` 且无 `session_id`：按 `app_id` 命中单实例 app session
+- `session_type=app` 且有 `session_id`：按 `(app_id, session_id)` 命中多实例 app session
+
+示例：
+- memory-one 常见单实例（`app_id=memory-one`）
+- world-entitir 常见多实例（`app_id=world` + `session_id=HR|EAI|...`）
+
+> App Session 不进入 Task Panel；Task Panel 只展示 task/event。
 
 ---
 
@@ -87,6 +102,7 @@ session widget stack:
 
 **特殊规则：**
 - **Session 不嵌套**：即使 canvas.open 声明了 `creates_on: "new"`，若当前已在 canvas 上下文中，world-one 强制降级为 push 栈操作
+- **Session 归一**：若当前 widget 已命中 new-session 语义，在该上下文再进入另一个 new-session widget，不创建新 session，只做视图覆盖（可返回）
 - **`sys.*` widget** 始终以模态覆盖层渲染，不进入导航栈
 
 ---

@@ -54,6 +54,7 @@ body.canvas-mode .mode-badge { color: var(--accent); border-color: var(--accent)
 .topbar-btn:hover { color: var(--text); border-color: var(--text-dim); }
 .topbar-btn.exit-canvas { display: none; }
 body.canvas-mode .topbar-btn.exit-canvas { display: flex; }
+.canvas-session-label { font-size: 11px; color: var(--text-muted); white-space: nowrap; vertical-align: middle; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
 
 /* ── Workspace ── */
@@ -1113,6 +1114,7 @@ window.addEventListener('DOMContentLoaded', () => {
   <div class="brand">World One<span class="brand-sub" data-i18n="app.subtitle">Ontology Agent</span></div>
   <div class="topbar-spacer"></div>
   <span class="mode-badge" id="mode-badge" data-i18n="mode.chat">Chat</span>
+  <span class="canvas-session-label" id="canvas-session-label"></span>
   <button class="topbar-btn exit-canvas" onclick="exitToMainSession()">
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
     <span data-i18n="topbar.exitCanvas">退出图模式</span>
@@ -1622,7 +1624,7 @@ const TRANSLATIONS = {
     'app.subtitle':           'Ontology Agent',
     'mode.chat':              'Chat',
     'mode.canvas':            'Canvas',
-    'topbar.exitCanvas':      '退出图模式',
+    'topbar.exitCanvas':      '退出 Canvas',
     'panel.all':              '全部',
     'panel.conversations':    '对话',
     'panel.tasks':            '任务',
@@ -1676,7 +1678,7 @@ const TRANSLATIONS = {
     'app.subtitle':           'Ontology Agent',
     'mode.chat':              'Chat',
     'mode.canvas':            'Canvas',
-    'topbar.exitCanvas':      'Exit Graph Mode',
+    'topbar.exitCanvas':      'Exit Canvas',
     'panel.all':              'All',
     'panel.conversations':    'Chats',
     'panel.tasks':            'Tasks',
@@ -1876,6 +1878,17 @@ function aippCurrentWidgetView() {
   return { widget_type: activeWidgetType, view_id: viewId };
 }
 
+function updateCanvasSessionLabel() {
+  const el = document.getElementById('canvas-session-label');
+  const sess = sessionData[currentSessionId];
+  const name = sess ? sess.name || currentSessionId : currentSessionId;
+  const type = sess?.type || '';
+  const maxLen = 16;
+  const truncated = name.length > maxLen ? name.slice(0, maxLen) + '...' : name;
+  el.textContent = type ? `${truncated}(${type})` : truncated;
+  el.title = type ? `${name}(${type})` : name;
+}
+
 function enterCanvasMode(worldName, widgetType) {
   console.log('[enterCanvasMode]', worldName, widgetType);
   panelOpenBeforeCanvas = panelOpen;
@@ -1895,6 +1908,7 @@ function enterCanvasMode(worldName, widgetType) {
   }
   document.getElementById('mode-badge').textContent = t('mode.canvas');
   if (worldName) document.getElementById('side-title').textContent = worldName;
+  updateCanvasSessionLabel();
   syncFullToPanel();
   // Apply upload config for the active widget
   applyWidgetUploadConfig(_widgetManifests[activeWidgetType] || null);
@@ -1906,6 +1920,7 @@ function exitCanvasMode() {
   document.body.classList.remove('canvas-mode');
   document.body.classList.remove('memory-mode');
   document.getElementById('mode-badge').textContent = t('mode.chat');
+  updateCanvasSessionLabel();
   if (sessionData[currentSessionId]) sessionData[currentSessionId].canvasMode = false;
   selectedNodeId = null;
   hideNodeDetail();
@@ -1914,9 +1929,12 @@ function exitCanvasMode() {
   applyWidgetUploadConfig(null);
 }
 
-/** 退出图模式按钮：保留当前 task session 的 canvas 状态，返回 World One 主 session。 */
+/** 退出 canvas 按钮：退出 canvas 模式并返回 World One 主 session。 */
 function exitToMainSession() {
-  switchSession('main');
+  if (isCanvasMode) exitCanvasMode();
+  if (currentSessionId !== 'main') {
+    switchSession('main');
+  }
 }
 
 // ─── World Designer Tabs ──────────────────────────────────────────────────────
@@ -2846,6 +2864,7 @@ async function switchSession(targetId) {
   } else if (!needsCanvas && isCanvasMode) {
     exitCanvasMode();
   }
+  updateCanvasSessionLabel();
 
   // 3. 先渲染消息
   restoreMessages(next);
@@ -3166,15 +3185,27 @@ function handleKey(e, area) {
 // ─── SESSION event ────────────────────────────────────────────────────────────
 function handleSessionEvent(data, triggerMsg) {
   const { ui_session_id, name, type, welcome_message } = data;
+  if (!ui_session_id || ui_session_id === 'main') {
+    console.warn('[handleSessionEvent] refusing to overwrite main session, got:', ui_session_id);
+    return;
+  }
   const welcomeHtml = md(welcome_message || `进入 **${name}**`);
 
   if (sessionData[ui_session_id]) {
     // Session already exists: update metadata but preserve chat history
     const existing = sessionData[ui_session_id];
     existing.name   = name || existing.name;
+    if (type) existing.type = type;
     existing.status = existing.status === 'active' ? 'active' : existing.status;
     // Only switch to it (don't re-render as blank)
     switchSession(ui_session_id);
+    if (type !== 'app') {
+      setPanelOpen(true);
+      if (type === 'task' || type === 'event') {
+        activeCategory = type;
+        updatePanelTitle();
+      }
+    }
   } else {
     // New session: create fresh
     sessionData[ui_session_id] = {
@@ -3865,6 +3896,7 @@ function horizonLabel(h) {
 function filterMemoryList(kw) { applyMemFilter(); }
 /** handleSseEvent: minimal handler for events coming from openAppDirect(). */
 function handleSseEvent(ev, containerEl) {
+  console.log('[SSE]', ev.type, ev.content?.slice?.(0, 120));
   if (ev.type === 'canvas')       { handleCanvasCommand(JSON.parse(ev.content)); }
   else if (ev.type === 'html_widget') { renderHtmlWidget(ev.content, containerEl); }
   else if (ev.type === 'session') { handleSessionEvent(JSON.parse(ev.content), ''); }
@@ -5974,6 +6006,9 @@ function markLastWidgetProcessed() {
       }
     }
   }
+  // 持久化到 DB，刷新后仍显示已处理卡片
+  fetch(`/api/sessions/${sid}/messages/widget-processed`, { method: 'PATCH' })
+    .catch(() => {});
   // 立即更新 DOM（如果还在当前视图）
   _applyProcessedStyle(_lastHtmlWidgetEl);
   _lastHtmlWidgetEl = null;
@@ -6136,6 +6171,7 @@ let _widgetManifests = {};
     } catch(e) {}
   }
   restoreMessages(initSess || { messages: [], id: currentSessionId, showWelcome: true });
+  updateCanvasSessionLabel();
   setReadOnlyMode(false); // main session is always active
 })();
 </script>

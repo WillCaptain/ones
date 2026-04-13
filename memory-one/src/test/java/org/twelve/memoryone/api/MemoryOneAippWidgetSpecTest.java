@@ -85,6 +85,19 @@ class MemoryOneAippWidgetSpecTest {
                 .as("memory_view: widget_type=memory-manager").isEqualTo("memory-manager");
     }
 
+    @Test
+    @DisplayName("[skill] memory_view session：app session 声明，app_id 与 /api/skills.app 一致")
+    void memory_view_session_is_appScoped() {
+        JsonNode skill = appSpec.findSkill(skillsNode, "memory_view");
+        assertThat(skill.has("session")).isTrue();
+        JsonNode session = skill.get("session");
+        assertThat(session.path("session_type").asText()).isEqualTo("app");
+        assertThat(session.path("app_id").asText())
+                .as("session.app_id 必须与 skills 顶层 app 一致")
+                .isEqualTo(skillsNode.path("app").asText());
+        appSpec.assertValidSkillSessionExtension(skill);
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // PART 3 — 后台 Skills：Canvas.triggers=false（Chat Mode / inject_context）
     // ══════════════════════════════════════════════════════════════════════════

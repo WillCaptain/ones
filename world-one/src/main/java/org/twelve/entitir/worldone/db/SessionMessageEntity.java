@@ -57,4 +57,5 @@ public class SessionMessageEntity {
     public String  getRole()           { return role; }
     public String  getContent()        { return content; }
     public Instant getCreatedAt()      { return createdAt; }
+    public void    setContent(String content) { this.content = content; }
 }

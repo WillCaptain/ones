@@ -2,6 +2,8 @@ package org.twelve.entitir.worldone;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +31,8 @@ import java.util.concurrent.Executors;
 @RestController
 @RequestMapping("/api")
 public class WorldOneChatController {
+
+    private static final Logger log = LoggerFactory.getLogger(WorldOneChatController.class);
 
     @Autowired WorldOneSessionStore agentStore;
     @Autowired UiSessionStore       uiStore;
@@ -126,6 +130,23 @@ public class WorldOneChatController {
         }
         messageHistory.deleteRange(id, ui.agentSessionId(), from, count);
         agentStore.trimHistoryRange(ui.agentSessionId(), from, count);
+        return ResponseEntity.ok(Map.of("ok", true));
+    }
+
+    /**
+     * PATCH /api/sessions/{id}/messages/widget-processed
+     *
+     * <p>将该 ui session 最后一条 widget 消息标记为已处理（processed:true 写入 DB）。
+     * 前端在 openAppDirect / 切换到 task session 时调用，保证刷新后仍显示"已处理"卡片。
+     */
+    @org.springframework.web.bind.annotation.PatchMapping("/sessions/{id}/messages/widget-processed")
+    public ResponseEntity<Map<String, Object>> markWidgetProcessed(
+            @PathVariable("id") String id) {
+        UiSession ui = uiStore.find(id);
+        if (ui == null) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "reason", "session not found"));
+        }
+        messageHistory.markLastWidgetProcessed(id);
         return ResponseEntity.ok(Map.of("ok", true));
     }
 
@@ -353,8 +374,9 @@ public class WorldOneChatController {
                             // 正常 forward 给前端，让前端渲染 iframe
 
                         } else if (event.type() == ChatEvent.Type.SESSION) {
-                            // 拦截 SESSION 事件：创建新 UiSession，记录其 id 供后续 CANVAS 更新用
-                            toSend = enrichSessionEvent(event);
+                            // Chat 流程：app 类型降级为 task，使 LLM 发起的 session 出现在 Task Panel。
+                            // openApp 流程保持 app 类型（见 openApp 方法中的回调）。
+                            toSend = enrichSessionEvent(downgradeAppToTask(event));
                             String newUiId = extractUiSessionId(toSend);
                             if (newUiId != null) currentUiId[0] = newUiId;
 
@@ -408,14 +430,18 @@ public class WorldOneChatController {
 
             UiSession ui;
             if ("app".equals(type) && !appId.isBlank()) {
-                // app session：固定 id = "app-{appId}"，幂等创建
-                ui = uiStore.ensureApp(appId, name);
+                // app session：支持单实例/多实例。canvas_session_id 非空时按 (app_id, session_id) 路由
+                ui = uiStore.ensureApp(appId, name, canvasSessionId.isBlank() ? null : canvasSessionId);
             } else {
                 // find-or-create：若已有对应 canvas_session_id 的 UiSession，直接复用
                 UiSession existing = canvasSessionId.isBlank()
                         ? null : uiStore.findByCanvasSessionId(canvasSessionId);
-                if (existing != null) {
+                if (existing != null && !"main".equals(existing.id())) {
                     ui = existing;
+                    // chat 流程可能将 app session 降级为 task，同步更新 DB
+                    if (!type.equals(existing.type())) {
+                        uiStore.updateType(existing.id(), type);
+                    }
                 } else {
                     // 每个新 task/world session 都分配独立 agent session，避免与 main 或其他世界共享 LLM 上下文
                     String freshAgentId = agentStore.newSession();
@@ -430,7 +456,8 @@ public class WorldOneChatController {
                                  "\",\"welcome_message\":\"" + escapeJson(welcomeMsg))
                            + "\"}";
             return ChatEvent.session(payload);
-        } catch (Exception ignored) {
+        } catch (Exception ex) {
+            log.warn("[enrichSessionEvent] Failed to enrich session event: {}", ex.getMessage(), ex);
             return e;
         }
     }
@@ -477,8 +504,28 @@ public class WorldOneChatController {
         } catch (Exception ignored) { }
     }
 
+    /**
+     * Chat 流程专用：将 SESSION 事件中的 type="app" 降级为 "task"，
+     * 移除 app_id，使 enrichSessionEvent 走 task 路径（按 canvas_session_id 查找/创建）。
+     * 这样 LLM 发起的 session 会出现在 Task Panel，
+     * 而 openApp 流程直接调用 enrichSessionEvent 保持 app 类型。
+     */
+    private ChatEvent downgradeAppToTask(ChatEvent e) {
+        try {
+            JsonNode n = JSON.readTree(e.content());
+            if (!"app".equals(n.path("type").asText())) return e;
+            var copy = (com.fasterxml.jackson.databind.node.ObjectNode) n.deepCopy();
+            copy.put("type", "task");
+            copy.remove("app_id");
+            return ChatEvent.session(JSON.writeValueAsString(copy));
+        } catch (Exception ignored) {
+            return e;
+        }
+    }
+
     private static String escapeJson(String s) {
-        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"");
+        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
     }
 
     /**

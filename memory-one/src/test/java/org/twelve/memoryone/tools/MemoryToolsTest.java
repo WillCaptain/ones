@@ -32,14 +32,15 @@ class MemoryToolsTest {
         tools  = new MemoryTools();
         setField(tools, "store",  store);
         setField(tools, "loader", loader);
+        when(store.loadSnapshot(anyString(), anyString())).thenReturn(Optional.empty());
     }
 
     // ── memory_load ───────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("memory_load: 调用 loader.loadWithIds() 并返回 memory_context")
+    @DisplayName("memory_load: 子 session 走 loadSessionContext 并返回 memory_context")
     void memoryLoad_returnsContext() {
-        when(loader.loadWithIds(any(), any(), any(), any(), any()))
+        when(loader.loadSessionContext(any(), any(), any(), any(), any()))
                 .thenReturn(new MemoryLoadResult("## Agent Memory\n- [FACT] 测试", List.of()));
 
         Map<String, Object> result = tools.load(

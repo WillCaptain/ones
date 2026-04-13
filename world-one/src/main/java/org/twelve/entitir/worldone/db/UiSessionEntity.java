@@ -12,7 +12,7 @@ import java.time.Instant;
 public class UiSessionEntity {
 
     @Id
-    @Column(length = 36)
+    @Column(length = 100)
     private String id;
 
     @Column(nullable = false, length = 20)
@@ -24,7 +24,7 @@ public class UiSessionEntity {
     @Column(length = 20)
     private String status;         // active | completed | voided | null
 
-    @Column(name = "agent_session_id", length = 36)
+    @Column(name = "agent_session_id", length = 100)
     private String agentSessionId;
 
     /** Canvas 模式：当前激活的 widget 类型（如 "entity-graph"），null 表示 Chat Mode。 */
@@ -32,7 +32,7 @@ public class UiSessionEntity {
     private String widgetType;
 
     /** Canvas 模式：对应的 app-side design session ID（如 world-entitir 的 WorldOneSession.id）。 */
-    @Column(name = "canvas_session_id", length = 36)
+    @Column(name = "canvas_session_id", length = 100)
     private String canvasSessionId;
 
     @Column(name = "created_at")

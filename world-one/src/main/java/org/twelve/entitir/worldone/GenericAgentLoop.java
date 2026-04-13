@@ -48,7 +48,9 @@ public final class GenericAgentLoop {
     private static final Set<String> HALLUCINATION_PHRASES = Set.of(
             "已删除", "删除成功", "已清除", "清除成功",
             "已创建", "创建成功", "已完成操作", "已成功删除",
-            "已更新", "更新成功", "已修改", "修改成功");
+            "已更新", "更新成功", "已修改", "修改成功",
+            "已打开", "已进入", "已在界面上打开", "已成功进入",
+            "已成功打开", "已为您打开");
 
     private final String      sessionId;
     private final String      userId;
@@ -260,6 +262,7 @@ public final class GenericAgentLoop {
 
                     boolean awaitingConfirmation = false;
                     boolean htmlWidgetRendered  = false;
+                    String  taskSessionName     = null;   // 非 null 时表示触发了 task session 导航
                     for (LLMCaller.ToolCall tc : resp.toolCalls()) {
                         emit.accept(ChatEvent.toolCall(tc.name()));
                         toolsCalledThisTurn.add(tc.name());
@@ -275,7 +278,8 @@ public final class GenericAgentLoop {
                         toolMsg.put("content",      toolResult);
                         history.add(toolMsg);
 
-                        extractEvents(toolResult, tc.name(), emit);
+                        String sessionName = extractEvents(toolResult, tc.name(), emit);
+                        if (sessionName != null) taskSessionName = sessionName;
 
                         // html_widget：widget 已渲染到对话，本轮就此结束，
                         // 不再让 LLM 续写文字（否则文字会覆盖 widget）
@@ -292,16 +296,30 @@ public final class GenericAgentLoop {
                         }
                     }
                     if (htmlWidgetRendered) {
-                        // Widget 已渲染到 UI。
-                        // 将 history 里本轮的 tool_call + tool_result 替换为一条简短的
-                        // assistant 文字，避免 LLM 在后续对话中认为 widget 仍在屏幕上
-                        // 并直接用文字描述，而不是重新调用工具。
-                        // 替换范围：history 从 turnStart+1（rawAssistantMessage）到末尾
+                        // html_widget 已渲染到 UI（view/list 类操作）。
+                        // 从 LLM history 中完全移除本轮的 tool_call + tool_result：
+                        //   - 不留任何占位，使 LLM 对"曾经展示过"毫无记忆
+                        //   - 下次用户再次请求时，LLM 会自然地重新调用工具获取最新数据
+                        //   - UI 卡片（role=widget, processed 状态）由 DB 独立维护，不受影响
+                        if (history.size() > turnStart + 1) {
+                            history.subList(turnStart + 1, history.size()).clear();
+                        }
+                        // 同时移除 user message（本轮提问不进入历史，防止 LLM 记住"我问过了"）
+                        if (!history.isEmpty() && "user".equals(history.get(history.size() - 1).get("role"))) {
+                            history.remove(history.size() - 1);
+                        }
+                        break;
+                    }
+                    if (taskSessionName != null) {
+                        // Task/world session 已打开，主 session 无需保留完整的 tool 数据。
+                        // 将本轮的 tool_call + tool_result（含 world schema 等大量数据）替换为
+                        // 一条简短占位，防止主 session 的 LLM 后续被 world 上下文污染。
                         if (history.size() > turnStart + 1) {
                             history.subList(turnStart + 1, history.size()).clear();
                         }
                         history.add(Map.of("role", "assistant",
-                                "content", "[已在界面上打开了对应的面板]"));
+                                "content", "OK"));
+                        log.info("[SessionIsolation] Replaced tool history with placeholder for task session: {}", taskSessionName);
                         break;
                     }
                     if (awaitingConfirmation) {
@@ -408,12 +426,29 @@ public final class GenericAgentLoop {
         } else {
             ctx.addAll(rest.subList(rest.size() - CONTEXT_WINDOW, rest.size()));
         }
+
+        // DEBUG: dump full LLM context for diagnostics
+        if (log.isInfoEnabled()) {
+            StringBuilder dump = new StringBuilder("[LLM Context] session=").append(sessionId).append(" messages=").append(ctx.size()).append("\n");
+            for (int i = 0; i < ctx.size(); i++) {
+                Map<String, Object> msg = ctx.get(i);
+                String r = (String) msg.getOrDefault("role", "?");
+                Object raw = msg.get("content");
+                String c = raw != null ? raw.toString() : "(null)";
+                if (msg.containsKey("tool_calls")) c = "(tool_calls)";
+                String preview = c.length() > 200 ? c.substring(0, 200) + "…(" + c.length() + " chars)" : c;
+                dump.append("  [").append(i).append("] ").append(r).append(": ").append(preview.replace("\n", "\\n")).append("\n");
+            }
+            log.info(dump.toString());
+        }
+
         return ctx;
     }
 
     /**
      * Host 兜底刷新：若本轮调用了 widget 的 mutating_tools 但 LLM 未主动调用 refresh_skill，
-     * 则 Host 自动补调一次 refresh_skill，确保 widget 数据展示与实际数据一致。
+     * 则 Host 自动补调一次 refresh_skill（entity-graph 上为 {@code world_design}），
+     * 且必须在 args 中传入 {@code session_id = workspaceId}，否则会误加载「Unnamed World」导致图画空。
      *
      * <p>这是 AIPP Widget View 协议的通用机制：
      * <ul>
@@ -440,7 +475,14 @@ public final class GenericAgentLoop {
             AppRegistration app = registry.findAppForTool(refreshSkill);
             String url = app.toolUrl(refreshSkill);
             Map<String, Object> reqBody = new LinkedHashMap<>();
-            reqBody.put("args", Map.of());
+            // world_design 等刷新入口必须带上当前 canvas 世界的 session_id。
+            // 若 args 为空，world-entitir 的 handleWorldDesign 会退回到「Unnamed World」，
+            // 返回空图或错误世界，导致 ontology 图被 replace 成空白。
+            Map<String, Object> refreshArgs = new LinkedHashMap<>();
+            if (workspaceId != null && !workspaceId.isBlank()) {
+                refreshArgs.put("session_id", workspaceId);
+            }
+            reqBody.put("args", refreshArgs);
             reqBody.put("_context", Map.of(
                 "userId",      userId,
                 "sessionId",   sessionId,
@@ -506,8 +548,12 @@ public final class GenericAgentLoop {
 
     /**
      * 从 Skill 执行结果中提取事件，顺序：SESSION → CANVAS。
+     *
+     * @return 若触发了 task/world SESSION 导航（需要清理调用方的 tool history），
+     *         返回新工作区名称（用于占位消息）；否则返回 null。
+     *         app 类型 session 不返回名称（由 html_widget 路径处理，无需清理）。
      */
-    private void extractEvents(String toolResult, String skillName, Consumer<ChatEvent> emit) {
+    private String extractEvents(String toolResult, String skillName, Consumer<ChatEvent> emit) {
         try {
             JsonNode root = JSON.readTree(toolResult);
             String widgetType = registry.findOutputWidgetForSkill(skillName);
@@ -516,7 +562,7 @@ public final class GenericAgentLoop {
             if (root.has("html_widget")) {
                 JsonNode hw = root.get("html_widget");
                 emit.accept(ChatEvent.htmlWidget(hw.toString()));
-                return; // html_widget 不触发 canvas/session 事件
+                return null; // html_widget 不触发 canvas/session 事件
             }
 
             // ── SESSION ───────────────────────────────────────────────────
@@ -534,6 +580,9 @@ public final class GenericAgentLoop {
             // canvas_session_id: the tool-side session id (e.g. WorldOneSession.id),
             // used by enrichSessionEvent to find-or-create a UiSession.
             String canvasSessionIdForPayload = root.path("session_id").asText("");
+
+            // 记录本次 extractEvents 是否触发了 task/world 导航（用于调用方清理 history）
+            String taskSessionName = null;
 
             if (root.has("new_session")) {
                 JsonNode ns = root.get("new_session");
@@ -556,20 +605,23 @@ public final class GenericAgentLoop {
                     this.sessionEntryPrompt = entryPrompt;
                 }
 
+                // 无论 sessionType 是 app 还是 task，只要打开了 canvas 世界，
+                // 都需要清理主 session 的 tool history，防止 LLM 上下文污染。
+                taskSessionName = worldName.isBlank() ? "新工作区" : worldName;
+
             } else if (widgetType != null) {
                 // 打开已有世界（无 new_session）：同样需要 session 事件，以便前端
                 // 切换到对应 task/app session 并显示欢迎语
                 String sessionType = root.path("session_type").asText("task");
                 String appId       = root.path("app_id").asText("");
-                // app session 的 agent_session_id 固定为 "app-{appId}"，确保上下文隔离
-                String agentIdForSession = ("app".equals(sessionType) && !appId.isBlank())
-                        ? "app-" + appId : sessionId;
+                // app session 的最终路由由 host 按 session_type/app_id/(session_id) 决定
+                String agentIdForSession = sessionId;
                 String welcome   = registry.widgetWelcomeMessage(widgetType);
                 String payload   = "{\"name\":\""               + escapeJson(worldName)
                                  + "\",\"type\":\""             + escapeJson(sessionType)
                                  + "\",\"agent_session_id\":\"" + escapeJson(agentIdForSession)
                                  + (welcome != null ? "\",\"welcome_message\":\"" + escapeJson(welcome) : "")
-                                 + (!"app".equals(sessionType) && !canvasSessionIdForPayload.isBlank()
+                                 + (!canvasSessionIdForPayload.isBlank()
                                      ? "\",\"canvas_session_id\":\"" + escapeJson(canvasSessionIdForPayload) : "")
                                  + (!appId.isBlank() ? "\",\"app_id\":\"" + escapeJson(appId) : "")
                                  + "\"}";
@@ -579,6 +631,8 @@ public final class GenericAgentLoop {
                 if (entryPrompt != null && this.sessionEntryPrompt == null) {
                     this.sessionEntryPrompt = entryPrompt;
                 }
+
+                taskSessionName = worldName.isBlank() ? "工作区" : worldName;
             }
 
             // ── CANVAS：优先由 worldone 基于 registry 生成 ─────────────────
@@ -586,6 +640,14 @@ public final class GenericAgentLoop {
                 String action       = root.has("new_session") ? "open" : "replace";
                 String sessionIdVal = root.path("session_id").asText("");
                 JsonNode graph      = root.path("graph");
+                // world_get_design / 部分 tool 返回顶层 canvas.props，无 graph 字段；
+                // 若不合并，会发出无 props 的 replace，前端把图画成空。
+                if (graph.isMissingNode() || graph.isNull()) {
+                    JsonNode legacyCanvas = root.path("canvas");
+                    if (!legacyCanvas.isMissingNode() && legacyCanvas.has("props")) {
+                        graph = legacyCanvas.get("props");
+                    }
+                }
 
                 Map<String, Object> canvas = new LinkedHashMap<>();
                 canvas.put("action",      action);
@@ -640,12 +702,17 @@ public final class GenericAgentLoop {
                     }
                     if (!sessionIdVal.isBlank()) this.workspaceId = sessionIdVal;
                     if (!canvasWorldName.isBlank()) this.workspaceTitle = canvasWorldName;
+                    // 旧格式 canvas 触发 task session，同样需要清理 history
+                    taskSessionName = canvasWorldName.isBlank() ? "工作区" : canvasWorldName;
                 }
 
                 emit.accept(ChatEvent.canvas(canvas.toString()));
             }
 
+            return taskSessionName;
+
         } catch (Exception ignored) { }
+        return null;
     }
 
     /** 合并基础 skills 与当前 canvas widget 的 canvas_skill.tools，按名称去重。 */
@@ -669,12 +736,6 @@ public final class GenericAgentLoop {
         }
         return buildToolsJson(merged);
     }
-
-    /**
-     * 若 LLM 本轮调用了 mutating tools（add/modify/remove）但没有主动调 world_get_design 刷新，
-     * Host 自动补一次 world_get_design 以保持 ontology canvas 同步。
-     * Decisions / Actions tab 由各工具自身的 canvas patch 负责刷新，无需额外处理。
-     */
 
     /**
      * Host 自动预加载记忆上下文（auto_pre_turn=true 的 skill，如 memory_load）。
@@ -785,7 +846,8 @@ public final class GenericAgentLoop {
     }
 
     private static String escapeJson(String s) {
-        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"");
+        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
     }
 
     /**
@@ -808,24 +870,34 @@ public final class GenericAgentLoop {
             Map<String, Object> msg = msgs.get(i);
             String role = (String) msg.getOrDefault("role", "");
 
-            // widget 是 UI 专用持久化 role，LLM API 不支持，转为 assistant 占位
+            // widget 是 UI 专用持久化 role，LLM API 不支持，转为 assistant 占位。
+            // 使用系统标注格式，避免 LLM 模仿此文本作为回复。
             if ("widget".equals(role)) {
-                result.add(Map.of("role", "assistant", "content", "[已在界面上打开了对应的面板]"));
+                result.add(Map.of("role", "assistant", "content", "OK"));
                 log.debug("[SanitizeHistory] Converted widget → assistant placeholder (session={})", sessionId);
                 continue;
             }
 
+            // 连续 user 消息（孤儿）：在前一条 user 后插入合成 assistant 占位，
+            // 避免 LLM 看到连续 user 消息而混乱。用户可见历史（loadHistoryForUi）不受影响。
+            if ("user".equals(role) && !result.isEmpty()
+                    && "user".equals(result.get(result.size() - 1).get("role"))) {
+                result.add(Map.of("role", "assistant", "content", "OK"));
+                log.debug("[SanitizeHistory] Inserted synthetic assistant for orphan user msg (session={})", sessionId);
+            }
+
+            // 幻觉检测：assistant 纯文本（无 tool_calls），且前一条不是 tool result，
+            // 且含有幻觉短语 → 直接从 LLM 上下文中移除（不替换，避免 LLM 模仿替换文本）。
+            // 孤儿 user 消息检测器会为丢失回复的 user 消息补位。
             if ("assistant".equals(role) && !msg.containsKey("tool_calls")) {
                 boolean precededByToolResult =
                         i > 0 && "tool".equals(msgs.get(i - 1).get("role"));
                 if (!precededByToolResult) {
                     String content = msg.get("content") instanceof String s ? s : "";
                     if (isHallucinatedCompletion(content)) {
-                        Map<String, Object> fixed = new LinkedHashMap<>(msg);
-                        fixed.put("content", "好的，我会通过相应的工具来处理你的请求。");
-                        result.add(fixed);
-                        log.debug("[SanitizeHistory] Replaced hallucinated completion (session={})", sessionId);
-                        continue;
+                        log.debug("[SanitizeHistory] Dropped hallucinated completion (session={}): {}", sessionId,
+                                content.length() > 40 ? content.substring(0, 40) + "…" : content);
+                        continue; // 直接跳过，不加入 result
                     }
                 }
             }
