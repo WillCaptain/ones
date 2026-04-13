@@ -283,7 +283,7 @@ public final class GenericAgentLoop {
 
                         // html_widget：widget 已渲染到对话，本轮就此结束，
                         // 不再让 LLM 续写文字（否则文字会覆盖 widget）
-                        if (isHtmlWidget(toolResult)) {
+                        if (isHtmlWidget(toolResult, tc.name())) {
                             htmlWidgetRendered = true;
                         }
 
@@ -558,8 +558,18 @@ public final class GenericAgentLoop {
             JsonNode root = JSON.readTree(toolResult);
             String widgetType = registry.findOutputWidgetForSkill(skillName);
 
+            // world_design 成功响应含 graph + session_id。若本地未安装 app manifest（skill→widget 索引缺失），
+            // 上面会得到 null，导致既不 SESSION 也不 CANVAS，界面永远停在 Chat。
+            boolean worldDesignHasGraph = "world_design".equals(skillName)
+                    && root.has("graph") && !root.path("graph").isNull()
+                    && root.has("session_id") && !root.path("session_id").asText("").isBlank();
+            if (widgetType == null && worldDesignHasGraph) {
+                widgetType = "entity-graph";
+            }
+
             // ── HTML_WIDGET：Chat 内嵌 HTML 卡片（is_canvas_mode=false）──────────
-            if (root.has("html_widget")) {
+            // 消歧只含 html_widget；若异常地同时带了 graph，应优先进入 Canvas，避免 Host 只吃卡片分支。
+            if (root.has("html_widget") && !(worldDesignHasGraph)) {
                 JsonNode hw = root.get("html_widget");
                 emit.accept(ChatEvent.htmlWidget(hw.toString()));
                 return null; // html_widget 不触发 canvas/session 事件
@@ -927,10 +937,21 @@ public final class GenericAgentLoop {
      * <p>使用 Jackson 解析，不依赖字符串匹配，可单元测试。
      */
     /** tool 结果含 html_widget 时返回 true：widget 已渲染，不需要 LLM 续写文字。 */
-    static boolean isHtmlWidget(String toolResultJson) {
+    /**
+     * 是否为「仅 Chat 内嵌卡片、不走 Canvas」的工具结果。
+     * world_design 在误带 html_widget 但同时返回 graph+session_id 时，应与 extractEvents 一致地视为画布回合。
+     */
+    static boolean isHtmlWidget(String toolResultJson, String toolName) {
         if (toolResultJson == null || toolResultJson.isBlank()) return false;
         try {
-            return !JSON.readTree(toolResultJson).path("html_widget").isMissingNode();
+            JsonNode root = JSON.readTree(toolResultJson);
+            if (root.path("html_widget").isMissingNode()) return false;
+            if ("world_design".equals(toolName)
+                    && root.has("graph") && !root.path("graph").isNull()
+                    && root.has("session_id") && !root.path("session_id").asText("").isBlank()) {
+                return false;
+            }
+            return true;
         } catch (Exception e) {
             return false;
         }

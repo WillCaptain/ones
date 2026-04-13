@@ -4645,11 +4645,14 @@ function runForceLayout(entityNodes, entityEdges, W, H) {
   const k = Math.max(200, Math.sqrt(W * H / n) * 0.55);
 
   const pos = {};
-  entityNodes.forEach((nd, i) => {
+  // 初始圆周位置按实体 id 排序分配，避免 API 返回节点顺序变化导致同构本体每次重排结果不同
+  const sortedIds = entityNodes.map(nd => nd.id).sort();
+  entityNodes.forEach((nd) => {
     if (graphNodePos[nd.id]?.x !== undefined) {
       pos[nd.id] = { ...graphNodePos[nd.id] };
     } else {
-      const angle = (2 * Math.PI * i) / n;
+      const iSorted = sortedIds.indexOf(nd.id);
+      const angle = (2 * Math.PI * iSorted) / n;
       pos[nd.id] = { x: W/2 + k*1.2*Math.cos(angle) - NODE_W/2, y: H/2 + k*1.2*Math.sin(angle) - nodeH(nd)/2 };
     }
   });
@@ -4823,10 +4826,10 @@ function renderGraph() {
   const container = document.getElementById('designer-tab-ontology') || document.getElementById('graph-scroll');
   let W = container?.clientWidth  || 0;
   let H = container?.clientHeight || 0;
-  // If container has no real layout yet, defer to next animation frame
+  // 容器尚未完成布局时用占位尺寸估算，但**不得**清空 graphLayoutKey：
+  // 否则在 Tab 切换、侧栏动画、首次 rAF 等瞬间会反复触发「实体集合变化」误判，导致力导向重排、节点乱跳。
   if (W < 50 || H < 50) {
     W = 800; H = 600;
-    graphLayoutKey = '';   // ensure layout re-runs once container has real size
   }
   const { nodes, edges } = graphState;
 

@@ -120,6 +120,15 @@ LLM tool response → { "html_widget": { "html": "<div>...</div>", "height": "40
 - 触发条件：tool response 包含 `html_widget` 字段
 - `title` 为必选字段，Host 在"已处理"卡片（`{title} · 已在界面上打开`）中使用
 
+#### 与「声明了 Canvas 的 Skill」共存
+
+若某 Skill 在 `/api/skills` 中声明了 `canvas.triggers: true`（例如本体设计），**单次**工具响应仍可能**仅**包含 `html_widget`（例如候选列表、消歧选择）。此时：
+
+- Host **优先**按 Inline Card 渲染，**不会**根据**同一次**响应生成 `canvas.open` / `SESSION` 导航；
+- 用户在内嵌 HTML 中完成选择（如 `postMessage` 触发再调 `world_design` 并带上 `session_id`）后，**后续**工具返回再进入 Canvas Mode。
+
+该行为由 Host 的 `extractEvents` 约定保证（`html_widget` 分支先于 session/canvas），应用侧无需改 Host 代码即可实现消歧 UI。
+
 ---
 
 ### 模式 4：ToolProxy Direct（Widget 直调工具）
@@ -305,6 +314,7 @@ world-one 左侧面板的 **Task Panel** 区域展示所有 Task 和 Event sessi
 |------|------|---------|---------|
 | 用户提问 → LLM 回答 | Chat | 当前 | — |
 | LLM 返回 entity-graph | Canvas | 当前 | widget-protocol.md |
+| Canvas 类 Skill 先返回候选列表（html_widget） | Inline Card | 当前 | 本文 §二 模式 3 |
 | LLM 返回记忆摘要卡片 | Inline Card | 当前 | — |
 | 用户点击"删除"按钮 | ToolProxy → sys.confirm | 当前（modal） | 本文 §三 |
 | LLM 发起 world_build | Task | 独立 Task Session | 本文 §一 |
