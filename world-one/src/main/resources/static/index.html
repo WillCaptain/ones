@@ -1334,6 +1334,7 @@ window.addEventListener('DOMContentLoaded', () => {
           <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="2" y1="6" x2="10" y2="6"/></svg>
         </button>
         <button class="graph-tool-btn" id="btn-zoom-reset" onclick="resetZoom()" title="恢复 100%">100%</button>
+        <button class="graph-tool-btn" onclick="fitGraph()" title="让全图适配视图">Fit</button>
       </div>
       <!-- Ontology tab content: entity graph -->
       <div id="designer-tab-ontology" class="designer-tab-content active">
@@ -2040,8 +2041,12 @@ async function loadActionsList() {
       type = obj.type || 'outline';
     } catch(e) {}
     const key = entityType + '::' + name;
+    const hasWarning = _actionWarnings.has(key);
+    const warnBadge  = hasWarning
+      ? `<span title="代码存在语法/类型错误" style="color:#f5a623;font-size:11px;margin-left:4px">⚠ 语法问题</span>`
+      : '';
     return `<div class="designer-item" onclick="editAction('${escHtml(entityType)}','${escHtml(name)}')">
-      <div class="designer-item-title">${escHtml(key)}</div>
+      <div class="designer-item-title">${escHtml(key)}${warnBadge}</div>
       <div class="designer-item-sub">${escHtml(sig)}</div>
       <div class="designer-item-meta">
         <span class="designer-item-tag ${escHtml(type)}">${escHtml(type)}</span>
@@ -2329,6 +2334,8 @@ let _decisionCache = {};
 let _aeMode = 'edit';  // 'edit' | 'new'
 let _aeOrigEntityType = null, _aeOrigActionName = null;
 let _aeEntityType = '';  // current entity type for completions/diagnostics
+// 记录推导失败的 action 键（entityType::actionName），在列表里显示警告
+const _actionWarnings = new Set();
 
 // ── Monaco editor for Outline code ──────────────────────────────────────────
 let _monacoEditor = null;
@@ -2381,12 +2388,17 @@ function _scheduleInferActionType() {
   _inferTypeTimer = setTimeout(_doInferActionType, 700);
 }
 
+/**
+ * 推导当前编辑器代码的签名。
+ * - 推导成功 → 更新 signature 显示，返回 true
+ * - 推导失败 → **不改变** 已有 signature，返回 false
+ */
 async function _doInferActionType() {
   const entityType = (document.getElementById('ae-entity-type')?.value || '').trim();
   const bodyCode   = (_monacoEditor && document.getElementById('ae-code-editor')?.offsetParent !== null)
                      ? _monacoEditor.getValue().trim()
                      : (document.getElementById('ae-code')?.value || '').trim();
-  if (!bodyCode || !worldSessionId) return;
+  if (!bodyCode || !worldSessionId) return false;
 
   try {
     const res = await fetch('/api/proxy/infer-action-type', {
@@ -2394,7 +2406,7 @@ async function _doInferActionType() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: worldSessionId, code: bodyCode, entity_type: entityType || undefined }),
     });
-    if (!res.ok) return;
+    if (!res.ok) return false;
     const data = await res.json();
     if (data.inputType && data.returnType && !data.error) {
       const sig = (data.inputType === entityType && entityType)
@@ -2402,8 +2414,10 @@ async function _doInferActionType() {
         : data.inputType + ' -> ' + data.returnType;
       document.getElementById('ae-signature').value = sig;
       document.getElementById('ae-signature-display').textContent = sig.replace('->', '→');
+      return true;
     }
-  } catch (_) {}
+    return false;
+  } catch (_) { return false; }
 }
 
 function _installActionHoverFallback() {
@@ -2595,12 +2609,18 @@ async function editAction(entityType, actionName) {
   onActionTypeChange();
   document.getElementById('action-editor-overlay').style.display = 'flex';
   if ((found?.type || 'outline') === 'outline') {
-    ensureMonacoEditor(bodyCode, actualEntityType).catch(err => {
-      console.error('[action-editor] Monaco init failed:', err);
-      document.getElementById('ae-code-editor').style.display = 'none';
-      const ta = document.getElementById('ae-code');
-      ta.style.display = ''; ta.value = bodyCode;
-    });
+    ensureMonacoEditor(bodyCode, actualEntityType)
+      .then(() => {
+        // 打开编辑器时立即推导一次，显示当前代码的签名
+        if (bodyCode) _doInferActionType();
+      })
+      .catch(err => {
+        console.error('[action-editor] Monaco init failed:', err);
+        document.getElementById('ae-code-editor').style.display = 'none';
+        const ta = document.getElementById('ae-code');
+        ta.style.display = ''; ta.value = bodyCode;
+        if (bodyCode) _doInferActionType();
+      });
   } else {
     document.getElementById('ae-code').value = found?.code || '';
   }
@@ -2774,6 +2794,21 @@ async function saveAction() {
       });
     }
     if (result?.error) { showActionError(result.error); return; }
+
+    // 保存前检测 Monaco 是否有错误标记，决定是否在列表里显示警告
+    const actionKey = entityType + '::' + actionName;
+    if (type === 'outline' && _monacoEditor) {
+      const model = _monacoEditor.getModel();
+      if (model) {
+        const markers = monaco.editor.getModelMarkers({ resource: model.uri });
+        const hasErrors = markers.some(m => m.severity >= 8); // 8 = Error
+        if (hasErrors) _actionWarnings.add(actionKey);
+        else           _actionWarnings.delete(actionKey);
+      }
+    } else {
+      _actionWarnings.delete(actionKey);
+    }
+
     closeActionEditor();
     loadActionsList();
     // 自动把 actionName: signature 写入 entity definition，并刷新 schema
@@ -4810,6 +4845,18 @@ function applyZoom() {
 }
 function adjustZoom(factor) { graphZoom = Math.max(0.25, Math.min(4, graphZoom*factor)); applyZoom(); saveGraphLayout(); }
 function resetZoom()         { graphZoom = 1.0; applyZoom(); saveGraphLayout(); }
+function fitGraph() {
+  const svg = document.getElementById('entity-graph');
+  const vb  = svg.getAttribute('viewBox')?.split(' ').map(Number);
+  if (!vb || vb.length < 4 || vb[2] <= 0 || vb[3] <= 0) return;
+  const scrollEl = document.getElementById('graph-scroll');
+  const W = scrollEl?.clientWidth  || 800;
+  const H = scrollEl?.clientHeight || 600;
+  const fitZ = Math.min(W / vb[2], H / vb[3]) * 0.95;
+  graphZoom = Math.max(0.25, Math.min(4, fitZ));
+  applyZoom();
+  saveGraphLayout();
+}
 
 /** 注册 SVG 拖拽 + 点击事件（只注册一次，innerHTML 变化不影响 svg 元素本身的监听器）*/
 function initGraphInteractions() {
@@ -4935,18 +4982,7 @@ function renderGraph() {
   });
   const svgW = Math.max(W, maxX), svgH = Math.max(H, maxY);
 
-  // 首次以真实容器尺寸渲染时，若布局溢出容器，自动缩小 zoom 到适配比例。
-  // 解决从更大屏幕/窗口保存的布局在当前容器下过大的问题。
-  if (!_graphFitDone && W > 50 && H > 50) {
-    if (maxX > W * 1.1 || maxY > H * 1.1) {
-      const fitZ = Math.min(W / maxX, H / maxY) * 0.95;
-      graphZoom = Math.max(0.25, Math.min(graphZoom, fitZ));
-      saveGraphLayout();
-      const zBtn = document.getElementById('btn-zoom-reset');
-      if (zBtn) zBtn.textContent = Math.round(graphZoom * 100) + '%';
-    }
-    _graphFitDone = true;
-  }
+  // Auto-fit 已移除：默认始终 100%。用户可点 "Fit" 按钮适配视图。
 
   svg.style.width  = svgW * graphZoom + 'px';
   svg.style.height = svgH * graphZoom + 'px';

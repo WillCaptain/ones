@@ -49,3 +49,78 @@ Standard Commons Logging discovery in action with spring-jcl: please remove comm
 2026-04-14T14:24:47.946+08:00  INFO 31358 --- [world-one] [nio-8090-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
 2026-04-14T14:24:47.947+08:00  INFO 31358 --- [world-one] [nio-8090-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
 2026-04-14T14:24:47.949+08:00  INFO 31358 --- [world-one] [nio-8090-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 2 ms
+Exception in thread "http-nio-8090-exec-4" java.lang.NoClassDefFoundError: ch/qos/logback/classic/spi/ThrowableProxy
+	at ch.qos.logback.classic.spi.LoggingEvent.<init>(LoggingEvent.java:145)
+	at ch.qos.logback.classic.Logger.buildLoggingEventAndAppend(Logger.java:424)
+	at ch.qos.logback.classic.Logger.filterAndLog_0_Or3Plus(Logger.java:386)
+	at ch.qos.logback.classic.Logger.log(Logger.java:780)
+	at org.slf4j.bridge.SLF4JBridgeHandler.callLocationAwareLogger(SLF4JBridgeHandler.java:232)
+	at org.slf4j.bridge.SLF4JBridgeHandler.publish(SLF4JBridgeHandler.java:313)
+	at java.logging/java.util.logging.Logger.log(Logger.java:983)
+	at java.logging/java.util.logging.Logger.doLog(Logger.java:1010)
+	at java.logging/java.util.logging.Logger.logp(Logger.java:1287)
+	at org.apache.juli.logging.DirectJDKLog.log(DirectJDKLog.java:175)
+	at org.apache.juli.logging.DirectJDKLog.error(DirectJDKLog.java:141)
+	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1759)
+	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1190)
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:659)
+	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.lang.ClassNotFoundException: ch.qos.logback.classic.spi.ThrowableProxy
+	... 17 more
+Exception in thread "http-nio-8090-exec-8" java.lang.NoClassDefFoundError: ch/qos/logback/classic/spi/ThrowableProxy
+	at ch.qos.logback.classic.spi.LoggingEvent.<init>(LoggingEvent.java:145)
+	at ch.qos.logback.classic.Logger.buildLoggingEventAndAppend(Logger.java:424)
+	at ch.qos.logback.classic.Logger.filterAndLog_0_Or3Plus(Logger.java:386)
+	at ch.qos.logback.classic.Logger.log(Logger.java:780)
+	at org.slf4j.bridge.SLF4JBridgeHandler.callLocationAwareLogger(SLF4JBridgeHandler.java:232)
+	at org.slf4j.bridge.SLF4JBridgeHandler.publish(SLF4JBridgeHandler.java:313)
+	at java.logging/java.util.logging.Logger.log(Logger.java:983)
+	at java.logging/java.util.logging.Logger.doLog(Logger.java:1010)
+	at java.logging/java.util.logging.Logger.logp(Logger.java:1287)
+	at org.apache.juli.logging.DirectJDKLog.log(DirectJDKLog.java:175)
+	at org.apache.juli.logging.DirectJDKLog.error(DirectJDKLog.java:141)
+	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1759)
+	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1190)
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:659)
+	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.lang.ClassNotFoundException: ch.qos.logback.classic.spi.ThrowableProxy
+	... 17 more
+Exception in thread "http-nio-8090-exec-10" java.lang.NoClassDefFoundError: ch/qos/logback/classic/spi/ThrowableProxy
+	at ch.qos.logback.classic.spi.LoggingEvent.<init>(LoggingEvent.java:145)
+	at ch.qos.logback.classic.Logger.buildLoggingEventAndAppend(Logger.java:424)
+	at ch.qos.logback.classic.Logger.filterAndLog_0_Or3Plus(Logger.java:386)
+	at ch.qos.logback.classic.Logger.log(Logger.java:780)
+	at org.slf4j.bridge.SLF4JBridgeHandler.callLocationAwareLogger(SLF4JBridgeHandler.java:232)
+	at org.slf4j.bridge.SLF4JBridgeHandler.publish(SLF4JBridgeHandler.java:313)
+	at java.logging/java.util.logging.Logger.log(Logger.java:983)
+	at java.logging/java.util.logging.Logger.doLog(Logger.java:1010)
+	at java.logging/java.util.logging.Logger.logp(Logger.java:1287)
+	at org.apache.juli.logging.DirectJDKLog.log(DirectJDKLog.java:175)
+	at org.apache.juli.logging.DirectJDKLog.error(DirectJDKLog.java:141)
+	at org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1759)
+	at org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1190)
+	at org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:659)
+	at org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.lang.ClassNotFoundException: ch.qos.logback.classic.spi.ThrowableProxy
+	... 17 more
+Exception in thread "SpringApplicationShutdownHook" java.lang.NoClassDefFoundError: ch/qos/logback/classic/spi/ThrowableProxy
+	at ch.qos.logback.classic.spi.LoggingEvent.<init>(LoggingEvent.java:145)
+	at ch.qos.logback.classic.Logger.buildLoggingEventAndAppend(Logger.java:424)
+	at ch.qos.logback.classic.Logger.filterAndLog_0_Or3Plus(Logger.java:386)
+	at ch.qos.logback.classic.Logger.log(Logger.java:780)
+	at org.apache.commons.logging.LogAdapter$Slf4jLocationAwareLog.warn(LogAdapter.java:445)
+	at org.springframework.context.support.AbstractApplicationContext.doClose(AbstractApplicationContext.java:1175)
+	at org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext.doClose(ServletWebServerApplicationContext.java:174)
+	at org.springframework.context.support.AbstractApplicationContext.close(AbstractApplicationContext.java:1126)
+	at org.springframework.boot.SpringApplicationShutdownHook.closeAndWait(SpringApplicationShutdownHook.java:145)
+	at java.base/java.lang.Iterable.forEach(Iterable.java:75)
+	at org.springframework.boot.SpringApplicationShutdownHook.run(SpringApplicationShutdownHook.java:114)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.lang.ClassNotFoundException: ch.qos.logback.classic.spi.ThrowableProxy
+	... 12 more
