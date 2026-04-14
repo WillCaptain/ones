@@ -4702,7 +4702,8 @@ function loadGraphLayout(sessionId) {
     graphNodePinned  = new Set(d.pinned  || []);
     graphNodeEdgeKey = d.edgeKey  || {};
     graphLayoutKey   = d.layoutKey|| '';
-    graphZoom        = d.zoom     || 1.0;
+    // 不恢复 zoom：始终从 1.0（100%）开始，避免旧 auto-fit 留下的错误比例干扰。
+    // graphZoom 保持 loadGraphLayout 入口处设置的 1.0。
   } catch {}
 }
 
@@ -4846,14 +4847,26 @@ function applyZoom() {
 function adjustZoom(factor) { graphZoom = Math.max(0.25, Math.min(4, graphZoom*factor)); applyZoom(); saveGraphLayout(); }
 function resetZoom()         { graphZoom = 1.0; applyZoom(); saveGraphLayout(); }
 function fitGraph() {
-  const svg = document.getElementById('entity-graph');
-  const vb  = svg.getAttribute('viewBox')?.split(' ').map(Number);
-  if (!vb || vb.length < 4 || vb[2] <= 0 || vb[3] <= 0) return;
   const scrollEl = document.getElementById('graph-scroll');
   const W = scrollEl?.clientWidth  || 800;
   const H = scrollEl?.clientHeight || 600;
-  const fitZ = Math.min(W / vb[2], H / vb[3]) * 0.95;
-  graphZoom = Math.max(0.25, Math.min(4, fitZ));
+  if (W < 50 || H < 50) return;
+
+  // 用节点实际包围盒（不含 SVG canvas padding）计算适配比例
+  const NODE_W = 165;
+  const nodeH  = n => 48 + ((n.fields||[]).length) * 18;
+  const entityNodes = (graphState.nodes || []).filter(n => n.type !== 'enum');
+  let maxX = 0, maxY = 0;
+  entityNodes.forEach(n => {
+    const p = graphNodePos[n.id]; if (!p) return;
+    maxX = Math.max(maxX, p.x + NODE_W);
+    maxY = Math.max(maxY, p.y + nodeH(n));
+  });
+  if (maxX <= 0 || maxY <= 0) return;
+
+  // 留 5% 边距
+  const fitZ = Math.min(W / (maxX + 60), H / (maxY + 60)) * 0.97;
+  graphZoom = Math.max(0.15, Math.min(4, fitZ));
   applyZoom();
   saveGraphLayout();
 }
@@ -4982,11 +4995,12 @@ function renderGraph() {
   });
   const svgW = Math.max(W, maxX), svgH = Math.max(H, maxY);
 
-  // Auto-fit 已移除：默认始终 100%。用户可点 "Fit" 按钮适配视图。
-
   svg.style.width  = svgW * graphZoom + 'px';
   svg.style.height = svgH * graphZoom + 'px';
   svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+  // 始终保持按钮文字与实际 zoom 同步（包括从 localStorage 恢复后的首次渲染）
+  const _zBtn = document.getElementById('btn-zoom-reset');
+  if (_zBtn) _zBtn.textContent = Math.round(graphZoom * 100) + '%';
   svg.removeAttribute('preserveAspectRatio');
 
   let html = `<defs><marker id="ar" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
