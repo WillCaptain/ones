@@ -2370,6 +2370,40 @@ function stripLambdaPrefix(code) {
 
 function scheduleMonacoDiagnostics() {
   if (_scheduleDiagnostics) _scheduleDiagnostics();
+  _scheduleInferActionType();
+}
+
+// ── Action type inference (debounced) ─────────────────────────────────────────
+let _inferTypeTimer = null;
+
+function _scheduleInferActionType() {
+  if (_inferTypeTimer) clearTimeout(_inferTypeTimer);
+  _inferTypeTimer = setTimeout(_doInferActionType, 700);
+}
+
+async function _doInferActionType() {
+  const entityType = (document.getElementById('ae-entity-type')?.value || '').trim();
+  const bodyCode   = (_monacoEditor && document.getElementById('ae-code-editor')?.offsetParent !== null)
+                     ? _monacoEditor.getValue().trim()
+                     : (document.getElementById('ae-code')?.value || '').trim();
+  if (!bodyCode || !worldSessionId) return;
+
+  try {
+    const res = await fetch('/api/proxy/infer-action-type', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: worldSessionId, code: bodyCode, entity_type: entityType || undefined }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.inputType && data.returnType && !data.error) {
+      const sig = (data.inputType === entityType && entityType)
+        ? entityType + ' -> ' + data.returnType
+        : data.inputType + ' -> ' + data.returnType;
+      document.getElementById('ae-signature').value = sig;
+      document.getElementById('ae-signature-display').textContent = sig.replace('->', '→');
+    }
+  } catch (_) {}
 }
 
 function _installActionHoverFallback() {
@@ -2742,11 +2776,48 @@ async function saveAction() {
     if (result?.error) { showActionError(result.error); return; }
     closeActionEditor();
     loadActionsList();
+    // 自动把 actionName: signature 写入 entity definition，并刷新 schema
+    await _syncActionToEntityDefinition(entityType, actionName, signature);
   } catch(e) {
     showActionError('保存失败：' + e.message);
   } finally {
     saveBtn.disabled = false; saveBtn.textContent = '保存';
   }
+}
+
+/**
+ * 将 action 的类型签名自动写入 entity 的 JSON definition，并刷新 schema。
+ * 签名格式：entity JSON 约定以 "paramType -> returnType" 存储，
+ * 其中 entity 实例作为隐式接收者（paramType 通常为 "Unit"）。
+ */
+async function _syncActionToEntityDefinition(entityType, actionName, signature) {
+  if (!entityType || !actionName || entityType === 'global' || !worldSessionId) return;
+  const node = (graphState.nodes || []).find(n => n.id === entityType);
+  if (!node || !node.definition) return;
+
+  try {
+    let d = {};
+    try { d = JSON.parse(node.definition); } catch {}
+
+    // 把 action editor 签名（如 "Employee -> SalaryRecord"）转为 entity JSON 约定：
+    // 去掉 entity 类型前缀，替换为 "Unit"（entity 是隐式接收者）
+    let jsonSig = signature || 'Unit -> Unit';
+    if (jsonSig.startsWith(entityType + ' -> ')) {
+      jsonSig = 'Unit -> ' + jsonSig.slice(entityType.length + 4);
+    }
+    d[actionName] = jsonSig;
+
+    const newDef = JSON.stringify(d);
+    node.definition = newDef;
+    const res = await fetch('/api/proxy/tools/world_modify_definition', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ args: { session_id: worldSessionId, class: entityType, definition: newDef } }),
+    });
+    const data = await res.json();
+    if (data.canvas) handleCanvasCommand(data.canvas);
+    if (_currentOntologyView === 'schema') loadSchemaEditor();
+  } catch (_) {}
 }
 
 function showActionError(msg) {
@@ -5252,6 +5323,7 @@ function showNodeDetail(id) {
               setNdStatus('⚠ ' + data.error, 'var(--danger)');
             } else {
               if (data.canvas) handleCanvasCommand(data.canvas);
+              if (_currentOntologyView === 'schema') loadSchemaEditor();
               setNdStatus('✓', 'var(--success)');
               setTimeout(() => setNdStatus('', ''), 1500);
             }
@@ -5432,9 +5504,10 @@ async function saveFieldEdits(nodeId) {
 
   const RESERVED = new Set(['class','class type','plural','module','description','values','~create','update','delete']);
   // 移除所有字符串值字段（primitive 和 FK/枚举引用统一处理）
+  // 但保留：函数类型签名（值包含 "->"，如 action 定义）
   for (const key of Object.keys(defObj)) {
     if (RESERVED.has(key) || key.startsWith('//')) continue;
-    if (typeof defObj[key] === 'string') delete defObj[key];
+    if (typeof defObj[key] === 'string' && !defObj[key].includes('->')) delete defObj[key];
   }
   fields.forEach(f => { defObj[f.name] = f.nullable ? f.type + '?' : f.type; });
 
@@ -5455,6 +5528,7 @@ async function saveFieldEdits(nodeId) {
       if (data.canvas) handleCanvasCommand(data.canvas);
       const n = graphState.nodes?.find(n => n.id === nodeId);
       if (n) n.definition = newDef;
+      if (_currentOntologyView === 'schema') loadSchemaEditor();
       setNdStatus('✓', 'var(--success)');
       setTimeout(() => setNdStatus('', ''), 1500);
     }
@@ -5520,6 +5594,7 @@ async function saveEnumValues(nodeId) {
     if (data.error) { setNdStatus('⚠ '+data.error, 'var(--danger)'); return; }
     node.definition = newDef; node.values = vals;
     if (data.canvas) handleCanvasCommand(data.canvas);
+    if (_currentOntologyView === 'schema') loadSchemaEditor();
     setNdStatus('✓', 'var(--success)'); setTimeout(() => setNdStatus('', ''), 1500);
   } catch { setNdStatus('⚠', 'var(--danger)'); }
 }

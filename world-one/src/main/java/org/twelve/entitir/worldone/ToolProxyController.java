@@ -102,6 +102,11 @@ public class ToolProxyController {
         return forwardToWorldEntitir("/api/code-hover", body);
     }
 
+    @PostMapping("/infer-action-type")
+    public ResponseEntity<?> proxyInferActionType(@RequestBody Map<String, Object> body) {
+        return forwardToWorldEntitir("/api/infer-action-type", body);
+    }
+
     @GetMapping("/schema-types")
     public ResponseEntity<?> proxySchemaTypes(
             @RequestParam(name = "session_id") String sessionId) {
