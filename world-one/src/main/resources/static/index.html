@@ -2421,6 +2421,11 @@ async function _doInferActionType() {
 }
 
 function _installActionHoverFallback() {
+  // Clear the static type map so hover always goes through Outline inference.
+  // The type map (schema-types) is built from JSON and shows raw entity fields;
+  // for action code we want GCP structural types via /api/code-hover instead.
+  OutlineLang.setTypeMap({});
+
   OutlineLang.setHoverFallback(async (word, code, offset) => {
     if (!worldSessionId) return null;
     try {
@@ -2635,6 +2640,9 @@ function onActionTypeChange() {
 function closeActionEditor() {
   document.getElementById('action-editor-overlay').style.display = 'none';
   OutlineLang.setHoverFallback(null);
+  // Reload type map for schema editor hover after action editor closes.
+  const tmu = _typeMapUrl();
+  if (tmu) OutlineLang.loadTypeMap(tmu, true);
 }
 
 // ── Ontology Schema Editor (Graph | Schema view toggle) ─────────────────────
