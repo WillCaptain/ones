@@ -9,25 +9,25 @@ Standard Commons Logging discovery in action with spring-jcl: please remove comm
 
  :: Spring Boot ::                (v3.4.0)
 
-2026-04-14T08:22:06.504+08:00  INFO 91812 --- [world-one] [           main] o.t.e.worldone.WorldOneApplication       : Starting WorldOneApplication using Java 21.0.6 with PID 91812 (/Users/imac/Documents/code/github/ones/world-one/target/world-one-1.0-SNAPSHOT.jar started by imac in /Users/imac/Documents/code/github/ones)
-2026-04-14T08:22:06.507+08:00  INFO 91812 --- [world-one] [           main] o.t.e.worldone.WorldOneApplication       : No active profile set, falling back to 1 default profile: "default"
-2026-04-14T08:22:10.194+08:00  INFO 91812 --- [world-one] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
-2026-04-14T08:22:10.329+08:00  INFO 91812 --- [world-one] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 105 ms. Found 2 JPA repository interfaces.
-2026-04-14T08:22:11.323+08:00  INFO 91812 --- [world-one] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8090 (http)
-2026-04-14T08:22:11.354+08:00  INFO 91812 --- [world-one] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
-2026-04-14T08:22:11.354+08:00  INFO 91812 --- [world-one] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.33]
-2026-04-14T08:22:11.381+08:00  INFO 91812 --- [world-one] [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
-2026-04-14T08:22:11.381+08:00  INFO 91812 --- [world-one] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 4815 ms
+2026-04-14T14:24:02.279+08:00  INFO 31358 --- [world-one] [           main] o.t.e.worldone.WorldOneApplication       : Starting WorldOneApplication using Java 21.0.6 with PID 31358 (/Users/imac/Documents/code/github/ones/world-one/target/world-one-1.0-SNAPSHOT.jar started by imac in /Users/imac/Documents/code/github/ones/world-one)
+2026-04-14T14:24:02.280+08:00  INFO 31358 --- [world-one] [           main] o.t.e.worldone.WorldOneApplication       : No active profile set, falling back to 1 default profile: "default"
+2026-04-14T14:24:02.630+08:00  INFO 31358 --- [world-one] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-04-14T14:24:02.658+08:00  INFO 31358 --- [world-one] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 23 ms. Found 2 JPA repository interfaces.
+2026-04-14T14:24:02.906+08:00  INFO 31358 --- [world-one] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8090 (http)
+2026-04-14T14:24:02.930+08:00  INFO 31358 --- [world-one] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-04-14T14:24:02.930+08:00  INFO 31358 --- [world-one] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.33]
+2026-04-14T14:24:02.953+08:00  INFO 31358 --- [world-one] [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-04-14T14:24:02.954+08:00  INFO 31358 --- [world-one] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 648 ms
 Standard Commons Logging discovery in action with spring-jcl: please remove commons-logging.jar from classpath in order to avoid potential conflicts
-2026-04-14T08:22:11.580+08:00  INFO 91812 --- [world-one] [           main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
-2026-04-14T08:22:11.791+08:00  INFO 91812 --- [world-one] [           main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.6.2.Final
-2026-04-14T08:22:11.875+08:00  INFO 91812 --- [world-one] [           main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
-2026-04-14T08:22:12.183+08:00  INFO 91812 --- [world-one] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
-2026-04-14T08:22:12.206+08:00  INFO 91812 --- [world-one] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
-2026-04-14T08:22:12.705+08:00  INFO 91812 --- [world-one] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@7534785a
-2026-04-14T08:22:12.706+08:00  INFO 91812 --- [world-one] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
-2026-04-14T08:22:12.944+08:00  WARN 91812 --- [world-one] [           main] org.hibernate.orm.deprecation            : HHH90000025: PostgreSQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
-2026-04-14T08:22:13.024+08:00  INFO 91812 --- [world-one] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
+2026-04-14T14:24:03.032+08:00  INFO 31358 --- [world-one] [           main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-04-14T14:24:03.069+08:00  INFO 31358 --- [world-one] [           main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.6.2.Final
+2026-04-14T14:24:03.089+08:00  INFO 31358 --- [world-one] [           main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2026-04-14T14:24:03.266+08:00  INFO 31358 --- [world-one] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-04-14T14:24:03.283+08:00  INFO 31358 --- [world-one] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-04-14T14:24:03.353+08:00  INFO 31358 --- [world-one] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@5822ecda
+2026-04-14T14:24:03.353+08:00  INFO 31358 --- [world-one] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-04-14T14:24:03.383+08:00  WARN 31358 --- [world-one] [           main] org.hibernate.orm.deprecation            : HHH90000025: PostgreSQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-04-14T14:24:03.393+08:00  INFO 31358 --- [world-one] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
 	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
 	Database driver: undefined/unknown
 	Database version: 16.13
@@ -35,17 +35,17 @@ Standard Commons Logging discovery in action with spring-jcl: please remove comm
 	Isolation level: undefined/unknown
 	Minimum pool size: undefined/unknown
 	Maximum pool size: undefined/unknown
-2026-04-14T08:22:13.813+08:00  INFO 91812 --- [world-one] [           main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
-2026-04-14T08:22:15.902+08:00  INFO 91812 --- [world-one] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
-2026-04-14T08:22:16.403+08:00  WARN 91812 --- [world-one] [           main] o.twelve.entitir.worldone.AppRegistry    : Failed to load app from memory-one (attempt 1), retrying in 3s: null
-2026-04-14T08:22:19.419+08:00  WARN 91812 --- [world-one] [           main] o.twelve.entitir.worldone.AppRegistry    : Failed to load app from memory-one (attempt 2), retrying in 3s: null
-2026-04-14T08:22:22.435+08:00  WARN 91812 --- [world-one] [           main] o.twelve.entitir.worldone.AppRegistry    : Failed to load app from memory-one after 3 attempts: null
-2026-04-14T08:22:22.436+08:00  INFO 91812 --- [world-one] [           main] o.twelve.entitir.worldone.AppRegistry    : Registry loaded 1 app(s): [world]
-2026-04-14T08:22:24.227+08:00  WARN 91812 --- [world-one] [           main] JpaBaseConfiguration$JpaWebConfiguration : spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
-2026-04-14T08:22:24.245+08:00  INFO 91812 --- [world-one] [           main] o.s.b.a.w.s.WelcomePageHandlerMapping    : Adding welcome page: class path resource [static/index.html]
-2026-04-14T08:22:24.504+08:00  INFO 91812 --- [world-one] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8090 (http) with context path '/'
-2026-04-14T08:22:24.520+08:00  INFO 91812 --- [world-one] [           main] o.t.e.worldone.WorldOneApplication       : Started WorldOneApplication in 18.504 seconds (process running for 18.948)
-2026-04-14T08:22:24.526+08:00  INFO 91812 --- [world-one] [           main] o.twelve.entitir.worldone.AppRegistry    : Registered builtin app: worldone-system (1 skills, 0 widgets)
-2026-04-14T08:22:27.251+08:00  INFO 91812 --- [world-one] [nio-8090-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
-2026-04-14T08:22:27.251+08:00  INFO 91812 --- [world-one] [nio-8090-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
-2026-04-14T08:22:27.256+08:00  INFO 91812 --- [world-one] [nio-8090-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 4 ms
+2026-04-14T14:24:03.823+08:00  INFO 31358 --- [world-one] [           main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-04-14T14:24:03.917+08:00  INFO 31358 --- [world-one] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-04-14T14:24:04.154+08:00  WARN 31358 --- [world-one] [           main] o.twelve.entitir.worldone.AppRegistry    : Failed to load app from memory-one (attempt 1), retrying in 3s: null
+2026-04-14T14:24:07.178+08:00  WARN 31358 --- [world-one] [           main] o.twelve.entitir.worldone.AppRegistry    : Failed to load app from memory-one (attempt 2), retrying in 3s: null
+2026-04-14T14:24:10.190+08:00  WARN 31358 --- [world-one] [           main] o.twelve.entitir.worldone.AppRegistry    : Failed to load app from memory-one after 3 attempts: null
+2026-04-14T14:24:10.194+08:00  INFO 31358 --- [world-one] [           main] o.twelve.entitir.worldone.AppRegistry    : Registry loaded 1 app(s): [world]
+2026-04-14T14:24:10.774+08:00  WARN 31358 --- [world-one] [           main] JpaBaseConfiguration$JpaWebConfiguration : spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
+2026-04-14T14:24:10.786+08:00  INFO 31358 --- [world-one] [           main] o.s.b.a.w.s.WelcomePageHandlerMapping    : Adding welcome page: class path resource [static/index.html]
+2026-04-14T14:24:10.980+08:00  INFO 31358 --- [world-one] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8090 (http) with context path '/'
+2026-04-14T14:24:10.986+08:00  INFO 31358 --- [world-one] [           main] o.t.e.worldone.WorldOneApplication       : Started WorldOneApplication in 8.962 seconds (process running for 9.255)
+2026-04-14T14:24:10.987+08:00  INFO 31358 --- [world-one] [           main] o.twelve.entitir.worldone.AppRegistry    : Registered builtin app: worldone-system (1 skills, 0 widgets)
+2026-04-14T14:24:47.946+08:00  INFO 31358 --- [world-one] [nio-8090-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-04-14T14:24:47.947+08:00  INFO 31358 --- [world-one] [nio-8090-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-04-14T14:24:47.949+08:00  INFO 31358 --- [world-one] [nio-8090-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 2 ms

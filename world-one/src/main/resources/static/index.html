@@ -4641,6 +4641,7 @@ let graphLayoutKey   = '';    // sorted entity-id string; recompute layout only 
 let graphZoom        = 1.0;   // view-level zoom (applied to SVG physical size)
 let graphNodePinned  = new Set();  // nids manually dragged → stay fixed in simulations
 let graphNodeEdgeKey = {};         // nid → sorted edge-partner string (change → auto-unpin)
+let _graphFitDone    = false;      // auto-fit runs once per loaded session (real container dims)
 
 /** 把当前布局存入 localStorage，key = 世界 session_id */
 function saveGraphLayout() {
@@ -4656,7 +4657,7 @@ function saveGraphLayout() {
 /** 加载指定 session 的布局；成功时返回 true，并恢复所有状态（含 layoutKey，防止不必要的重排） */
 function loadGraphLayout(sessionId) {
   graphNodePos = {}; graphNodePinned = new Set();
-  graphNodeEdgeKey = {}; graphLayoutKey = ''; graphZoom = 1.0;
+  graphNodeEdgeKey = {}; graphLayoutKey = ''; graphZoom = 1.0; _graphFitDone = false;
   if (!sessionId) return;
   try {
     const raw = localStorage.getItem('gl-' + sessionId);
@@ -4875,11 +4876,12 @@ function initGraphInteractions() {
 
 function renderGraph() {
   const svg       = document.getElementById('entity-graph');
-  const container = document.getElementById('designer-tab-ontology') || document.getElementById('graph-scroll');
-  let W = container?.clientWidth  || 0;
-  let H = container?.clientHeight || 0;
-  // 容器尚未完成布局时用占位尺寸估算，但**不得**清空 graphLayoutKey：
-  // 否则在 Tab 切换、侧栏动画、首次 rAF 等瞬间会反复触发「实体集合变化」误判，导致力导向重排、节点乱跳。
+  // 始终从 graph-scroll 取尺寸——designer-tab-ontology 在其他 tab 活跃时为 display:none，
+  // clientWidth/Height 会返回 0，导致 force layout 用 800×600 fallback 算出过大间距，
+  // 切回 ontology 后 auto-fit 将缩放降至 ~60%（本该是 100%）。
+  const scrollEl  = document.getElementById('graph-scroll');
+  let W = scrollEl?.clientWidth  || 0;
+  let H = scrollEl?.clientHeight || 0;
   if (W < 50 || H < 50) {
     W = 800; H = 600;
   }
@@ -4932,6 +4934,20 @@ function renderGraph() {
     maxY = Math.max(maxY, p.y + p.h  + PAD);
   });
   const svgW = Math.max(W, maxX), svgH = Math.max(H, maxY);
+
+  // 首次以真实容器尺寸渲染时，若布局溢出容器，自动缩小 zoom 到适配比例。
+  // 解决从更大屏幕/窗口保存的布局在当前容器下过大的问题。
+  if (!_graphFitDone && W > 50 && H > 50) {
+    if (maxX > W * 1.1 || maxY > H * 1.1) {
+      const fitZ = Math.min(W / maxX, H / maxY) * 0.95;
+      graphZoom = Math.max(0.25, Math.min(graphZoom, fitZ));
+      saveGraphLayout();
+      const zBtn = document.getElementById('btn-zoom-reset');
+      if (zBtn) zBtn.textContent = Math.round(graphZoom * 100) + '%';
+    }
+    _graphFitDone = true;
+  }
+
   svg.style.width  = svgW * graphZoom + 'px';
   svg.style.height = svgH * graphZoom + 'px';
   svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
@@ -5067,7 +5083,7 @@ function locateNode(id) {
   selectNode(id);
   const p = graphNodePos[id];
   if (!p) return;
-  const container = document.getElementById('designer-tab-ontology') || document.getElementById('graph-scroll');
+  const container = document.getElementById('graph-scroll');
   const cw = container.clientWidth, ch = container.clientHeight;
   const inView = p.x >= container.scrollLeft &&
                  p.x + p.w <= container.scrollLeft + cw &&
