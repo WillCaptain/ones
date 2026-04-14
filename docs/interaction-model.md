@@ -317,7 +317,8 @@ world-one 左侧面板的 **Task Panel** 区域展示所有 Task 和 Event sessi
 | Canvas 类 Skill 先返回候选列表（html_widget） | Inline Card | 当前 | 本文 §二 模式 3 |
 | LLM 返回记忆摘要卡片 | Inline Card | 当前 | — |
 | 用户点击"删除"按钮 | ToolProxy → sys.confirm | 当前（modal） | 本文 §三 |
-| LLM 发起 world_build | Task | 独立 Task Session | 本文 §一 |
+| LLM 发起 world_build | Task | 独立 Task Session（结果 → STAGING） | 本文 §一 |
+| LLM 发起 world_promote | Task | 独立 Task Session（STAGING → PRODUCTION） | 本文 §一 |
 | CI pipeline 完成通知 | Event | 独立 Event Session | 本文 §一 |
 | canvas 内 LLM 再 open widget | Canvas stack push | 当前（push） | 本文 §二 |
 | 用户点击后退 | Canvas stack pop + 刷新 | 当前（pop） | 本文 §二 |

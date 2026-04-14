@@ -450,6 +450,15 @@ body.canvas-mode .designer-tab-content { top: 36px; }
   outline: none; cursor: pointer; transition: border-color .12s; flex-shrink: 0;
 }
 .nd-edit-type:focus { border-color: var(--accent); color: var(--text); }
+.nd-edit-nullable {
+  width: 20px; height: 20px; border: 1px solid var(--border); background: var(--surface2);
+  border-radius: 4px; cursor: pointer; display: flex; align-items: center;
+  justify-content: center; flex-shrink: 0; font-size: 11px; font-weight: 700;
+  line-height: 1; transition: background .12s, color .12s, border-color .12s;
+  color: var(--text-muted); font-family: monospace;
+}
+.nd-edit-nullable:hover { border-color: var(--accent); }
+.nd-edit-nullable.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .nd-edit-del {
   width: 20px; height: 20px; border: none; background: none; border-radius: 4px;
   color: var(--text-muted); cursor: pointer; display: flex; align-items: center;
@@ -2322,8 +2331,14 @@ let _aeOrigEntityType = null, _aeOrigActionName = null;
 let _aeEntityType = '';  // current entity type for completions/diagnostics
 
 // ── Monaco editor for Outline code ──────────────────────────────────────────
-let _monacoReady = false, _monacoEditor = null;
+let _monacoEditor = null;
 let _scheduleDiagnostics = null;
+
+function _typeMapUrl() {
+  return worldSessionId
+    ? `/api/proxy/schema-types?session_id=${encodeURIComponent(worldSessionId)}`
+    : null;
+}
 
 /** Update fn-header and signature display when entity type changes. Returns param name. */
 function applyActionEntityType(entityType, existingSig) {
@@ -2357,53 +2372,51 @@ function scheduleMonacoDiagnostics() {
   if (_scheduleDiagnostics) _scheduleDiagnostics();
 }
 
+function _installActionHoverFallback() {
+  OutlineLang.setHoverFallback(async (word, code, offset) => {
+    if (!worldSessionId) return null;
+    try {
+      const resp = await fetch('/api/proxy/code-hover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: worldSessionId, code, offset,
+          entity_type: _aeEntityType || undefined,
+        }),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      return data.contents || null;
+    } catch (_) { return null; }
+  });
+}
+
 function ensureMonacoEditor(initialValue, entityType) {
   _aeEntityType = entityType || '';
-  return new Promise(resolve => {
-    if (_monacoEditor) {
-      _monacoEditor.setValue(initialValue || '');
-      monaco.editor.setModelMarkers(_monacoEditor.getModel(), 'outline-lint', []);
-      resolve();
-      return;
-    }
-    const cfg = { paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.46.0/min/vs' } };
-    require.config(cfg);
-    require(['vs/editor/editor.main'], () => {
-      if (!_monacoReady) {
-        OutlineLang.registerLanguage();
-        OutlineLang.registerCompletions({
-          urlResolver: () => '/api/proxy/completions',
-          getExtraBody: (code, offset) => ({
-            session_id: worldSessionId,
-            entity_type: _aeEntityType,
-          }),
-          triggerChars: ['.', ' '],
-        });
-        _monacoReady = true;
-      }
-      const container = document.getElementById('ae-code-editor');
-      _monacoEditor = monaco.editor.create(container, {
-        value: initialValue || '',
-        language: 'outline',
-        theme: 'outline-dark',
-        minimap: { enabled: false },
-        fontSize: 13,
-        fontFamily: "'JetBrains Mono','Fira Code',monospace",
-        lineNumbers: 'on',
-        scrollBeyondLastLine: false,
-        automaticLayout: true,
-        wordWrap: 'on',
-        tabSize: 2,
-        insertSpaces: true,
-      });
-      _scheduleDiagnostics = OutlineLang.createDiagnostics({
-        validateUrl:    '/api/proxy/validate',
-        getRequestBody: code => ({ session_id: worldSessionId, code, entity_type: _aeEntityType }),
-        editor:         _monacoEditor,
-      });
-      _monacoEditor.onDidChangeModelContent(() => _scheduleDiagnostics());
-      resolve();
-    });
+  _installActionHoverFallback();
+  if (_monacoEditor) {
+    _monacoEditor.setValue(initialValue || '');
+    monaco.editor.setModelMarkers(_monacoEditor.getModel(), 'outline-lint', []);
+    return Promise.resolve();
+  }
+  return OutlineLang.createEditor(document.getElementById('ae-code-editor'), {
+    value: initialValue || '',
+    completions: {
+      url: '/api/proxy/completions',
+      getExtraBody: (code, offset) => ({
+        session_id: worldSessionId,
+        entity_type: _aeEntityType,
+      }),
+      triggerChars: ['.', ' '],
+    },
+    diagnostics: {
+      validateUrl:    '/api/proxy/validate',
+      getRequestBody: code => ({ session_id: worldSessionId, code, entity_type: _aeEntityType }),
+    },
+    typeMapUrl: _typeMapUrl(),
+  }).then(handle => {
+    _monacoEditor = handle.editor;
+    _scheduleDiagnostics = handle.scheduleDiagnostics;
   });
 }
 
@@ -2519,8 +2532,8 @@ function addAction() {
   document.getElementById('ae-error').style.display = 'none';
   onActionTypeChange();
   document.getElementById('action-editor-overlay').style.display = 'flex';
-  ensureMonacoEditor('', '').catch(() => {
-    // Monaco unavailable – show fallback textarea
+  ensureMonacoEditor('', '').catch(err => {
+    console.error('[action-editor] Monaco init failed:', err);
     document.getElementById('ae-code-editor').style.display = 'none';
     const ta = document.getElementById('ae-code');
     ta.style.display = ''; ta.value = '';
@@ -2548,7 +2561,8 @@ async function editAction(entityType, actionName) {
   onActionTypeChange();
   document.getElementById('action-editor-overlay').style.display = 'flex';
   if ((found?.type || 'outline') === 'outline') {
-    ensureMonacoEditor(bodyCode, actualEntityType).catch(() => {
+    ensureMonacoEditor(bodyCode, actualEntityType).catch(err => {
+      console.error('[action-editor] Monaco init failed:', err);
       document.getElementById('ae-code-editor').style.display = 'none';
       const ta = document.getElementById('ae-code');
       ta.style.display = ''; ta.value = bodyCode;
@@ -2566,13 +2580,13 @@ function onActionTypeChange() {
 
 function closeActionEditor() {
   document.getElementById('action-editor-overlay').style.display = 'none';
+  OutlineLang.setHoverFallback(null);
 }
 
 // ── Ontology Schema Editor (Graph | Schema view toggle) ─────────────────────
 
 let _currentOntologyView = 'graph'; // 'graph' | 'schema'
 let _schemaEditor = null;           // Monaco editor instance for schema view
-let _schemaMonacoReady = false;
 let _scheduleSchemaDiagnostics = null; // debounced diagnostics fn for schema editor
 
 /** Toggle between Graph and Schema sub-views inside the Ontology tab. */
@@ -2625,22 +2639,14 @@ async function loadSchemaEditor() {
   setSchemaStatus('加载中…');
   try {
     if (!worldSessionId) {
-      const code = '// 暂无会话\n';
-      await ensureSchemaEditor(code);
+      await ensureSchemaEditor('// 暂无会话\n');
       setSchemaStatus('Outline Schema（只读）');
       return;
     }
-    // Fetch outline and type map in parallel; type map enables instant hover (no per-hover HTTP)
-    const [outlineRes, typesRes] = await Promise.all([
-      fetch(`/api/proxy/session-outline?session_id=${encodeURIComponent(worldSessionId)}`),
-      fetch(`/api/proxy/schema-types?session_id=${encodeURIComponent(worldSessionId)}`),
-    ]);
+    const outlineRes = await fetch(
+      `/api/proxy/session-outline?session_id=${encodeURIComponent(worldSessionId)}`);
     if (!outlineRes.ok) throw new Error(`HTTP ${outlineRes.status}`);
     const data = await outlineRes.json();
-    // Push session type data into OutlineLang — it owns all type inference from here
-    if (typesRes.ok && typeof OutlineLang !== 'undefined') {
-      OutlineLang.setTypeMap(await typesRes.json());
-    }
     await ensureSchemaEditor(data.outline || '// 暂无定义\n');
     setSchemaStatus('Outline Schema（只读 · 由 JSON 实时生成）');
   } catch (e) {
@@ -2650,56 +2656,27 @@ async function loadSchemaEditor() {
 
 /** Create or update the schema Monaco editor with the given value (read-only). */
 function ensureSchemaEditor(value) {
-  return new Promise(resolve => {
-    if (_schemaEditor) {
-      _schemaEditor.setValue(value || '');
-      // 强制重新 layout，确保切换到 schema view 后尺寸计算正确
-      requestAnimationFrame(() => _schemaEditor.layout());
-      resolve();
-      return;
-    }
-    const cfg = { paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.46.0/min/vs' } };
-    require.config(cfg);
-    require(['vs/editor/editor.main'], () => {
-      if (!_schemaMonacoReady) {
-        if (typeof OutlineLang !== 'undefined') {
-          try { OutlineLang.registerLanguage(); } catch (_) {}
-          // Hover: backed by OutlineLang's internal type map (set via setTypeMap at schema load)
-          try { OutlineLang.registerHover(); } catch (_) {}
-          // Diagnostics: underline syntax/cross-ref errors in the generated schema
-          // (schema is read-only but errors should still surface visually)
-          try {
-            _scheduleSchemaDiagnostics = OutlineLang.createDiagnostics({
-              validateUrl: '/api/proxy/schema-validate',
-              getRequestBody: (code) => ({ session_id: worldSessionId, code }),
-              get editor() { return _schemaEditor; },
-              debounceMs: 800,
-              markerOwner: 'schema-lint',
-            });
-          } catch (_) {}
-        }
-        _schemaMonacoReady = true;
-      }
-      const container = document.getElementById('schema-code-editor');
-      if (!container) { resolve(); return; }
-      _schemaEditor = monaco.editor.create(container, {
-        value: value || '',
-        language: 'outline',
-        theme: 'outline-dark',
-        fontSize: 12,
-        lineNumbers: 'on',
-        minimap: { enabled: false },
-        scrollBeyondLastLine: false,
-        automaticLayout: true,
-        wordWrap: 'off',
-        tabSize: 2,
-        readOnly: true,            // Outline is read-only (derived from JSON)
-        domReadOnly: true,
-      });
-      // Trigger initial diagnostics pass
-      if (_scheduleSchemaDiagnostics) _scheduleSchemaDiagnostics();
-      resolve();
-    });
+  if (_schemaEditor) {
+    _schemaEditor.setValue(value || '');
+    requestAnimationFrame(() => _schemaEditor.layout());
+    return Promise.resolve();
+  }
+  const container = document.getElementById('schema-code-editor');
+  if (!container) return Promise.resolve();
+  return OutlineLang.createEditor(container, {
+    value: value || '',
+    readOnly: true,
+    diagnostics: {
+      validateUrl:    '/api/proxy/schema-validate',
+      getRequestBody: code => ({ session_id: worldSessionId, code }),
+      debounceMs:     800,
+      markerOwner:    'schema-lint',
+    },
+    typeMapUrl: _typeMapUrl(),
+    editorOptions: { fontSize: 12, wordWrap: 'off' },
+  }).then(handle => {
+    _schemaEditor = handle.editor;
+    _scheduleSchemaDiagnostics = handle.scheduleDiagnostics;
   });
 }
 
@@ -2899,6 +2876,8 @@ async function switchSession(targetId) {
       // 恢复 worldSessionId（直接工具调用所需）
       if (next.canvasSessionId) {
         worldSessionId = next.canvasSessionId;
+        OutlineLang.invalidateTypeMap();
+        OutlineLang.loadTypeMap(_typeMapUrl());
         loadGraphLayout(worldSessionId);
       }
       const hasGraphData = next.graphState && next.graphState.nodes && next.graphState.nodes.length > 0;
@@ -3259,6 +3238,8 @@ function handleCanvasCommand(cmd) {
   // store design session_id for inline editing
   if (cmd.session_id && cmd.session_id !== worldSessionId) {
     worldSessionId = cmd.session_id;
+    OutlineLang.invalidateTypeMap();
+    OutlineLang.loadTypeMap(_typeMapUrl());
     loadGraphLayout(worldSessionId);
   }
 
@@ -5041,8 +5022,8 @@ function showNodeDetail(id) {
   document.getElementById('nd-title').textContent = node.label || node.id;
   const badge  = document.getElementById('nd-badge');
   const isEnum = node.type === 'enum';
-  const isLive = node.phase === 'live';
-  badge.textContent = isEnum ? '枚举' : '实体';
+  const phaseLabel = node.phase === 'live' ? ' [LIVE]' : '';
+  badge.textContent = (isEnum ? '枚举' : '实体') + phaseLabel;
   badge.className   = 'nd-type-badge ' + (isEnum ? 'enum' : 'entity');
 
   // "Open in Schema" shortcut button (only when schemaCode exists)
@@ -5060,7 +5041,7 @@ function showNodeDetail(id) {
   body.innerHTML = '';
 
   if (isEnum) {
-    const canEditEnum = !isLive && !!node.definition;
+    const canEditEnum = !!node.definition;
     const vals = node.values || [];
     const secEl = document.createElement('div');
     secEl.className = 'nd-sec';
@@ -5119,8 +5100,8 @@ function showNodeDetail(id) {
       body.appendChild(wrap);
     }
   } else {
-    // ── fields section（editable if in DESIGN phase and definition exists）
-    const canEdit = !isLive && !!node.definition;
+    // ── fields section（always editable when definition exists; session is always editable）
+    const canEdit = !!node.definition;
     const fields  = node.fields || [];
 
     const secEl = document.createElement('div');
@@ -5134,16 +5115,29 @@ function showNodeDetail(id) {
       editWrap.id = 'nd-edit-fields';
 
       const PRIM_TYPES = new Set(PRIMITIVE_TYPES);
-      // ── primitive fields from node.fields
+      // Normalize "(Type|Nothing)" → "Type?" before parsing
+      const normalizeNullable = (t) => {
+        const m = t.match(/^\((.+)\|Nothing\)$/);
+        return m ? m[1] + '?' : t;
+      };
+      // ── primitive fields from node.fields (supports nullable suffix '?')
       const parsedFields = fields.map(f => {
         const parts = typeof f === 'string' ? f.split(':') : [f.name||'', f.type||''];
-        return { name: parts[0].trim(), type: (parts[1]||'String').trim(), _kind: 'prim' };
+        let rawType = normalizeNullable((parts[1]||'String').trim());
+        const nullable = rawType.endsWith('?');
+        if (nullable) rawType = rawType.slice(0, -1);
+        return { name: parts[0].trim(), type: rawType, nullable, _kind: 'prim' };
       });
       // ── outgoing FK / enum edges → exclude primitive types (Date bug fix)
       const outFKs = (graphState.edges || [])
         .filter(e => (e.source||e.from) === node.id)
         .filter(e => !PRIM_TYPES.has(e.target||e.to))
-        .map(e => ({ name: e.label || '', type: e.target || e.to || '', _kind: 'fk' }));
+        .map(e => {
+          let fkType = e.target || e.to || '';
+          const nullable = fkType.endsWith('?');
+          if (nullable) fkType = fkType.slice(0, -1);
+          return { name: e.label || '', type: fkType, nullable, _kind: 'fk' };
+        });
 
       const otherNodeIds = (graphState.nodes || [])
         .filter(n => n.id !== node.id).map(n => n.id).sort();
@@ -5158,9 +5152,14 @@ function showNodeDetail(id) {
           row.className = 'nd-edit-row'; row.dataset.idx = idx; row.dataset.kind = 'prim';
           row.innerHTML = `<input class="nd-edit-name" value="${esc(f.name)}" placeholder="字段名" maxlength="40">
             <select class="nd-edit-type">${PRIMITIVE_TYPES.map(t=>`<option${t===f.type?' selected':''}>${t}</option>`).join('')}</select>
+            <button class="nd-edit-nullable ${f.nullable?'active':''}" title="可空类型 (?)">?</button>
             <button class="nd-edit-del" title="删除">×</button>`;
           row.querySelector('.nd-edit-type').onchange = () => { ndSyncFromDom(); applyFieldsToGraph(node.id); scheduleAutoSave(node.id); };
           row.querySelector('.nd-edit-name').onblur  = () => { ndSyncFromDom(); applyFieldsToGraph(node.id); scheduleAutoSave(node.id); };
+          row.querySelector('.nd-edit-nullable').onclick = () => {
+            ndSyncFromDom(); ndEditFields[idx].nullable = !ndEditFields[idx].nullable;
+            renderEditRows(); applyFieldsToGraph(node.id); scheduleAutoSave(node.id);
+          };
           row.querySelector('.nd-edit-del').onclick  = () => { ndSyncFromDom(); ndEditFields.splice(idx,1); renderEditRows(); applyFieldsToGraph(node.id); scheduleAutoSave(node.id); };
           editWrap.appendChild(row);
         });
@@ -5169,7 +5168,7 @@ function showNodeDetail(id) {
         addPrimBtn.className = 'nd-add-field';
         addPrimBtn.innerHTML = `<svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="6" y1="2" x2="6" y2="10"/><line x1="2" y1="6" x2="10" y2="6"/></svg> 添加字段`;
         addPrimBtn.onclick = () => {
-          ndSyncFromDom(); ndEditFields.push({name:'',type:'String',_kind:'prim'}); renderEditRows();
+          ndSyncFromDom(); ndEditFields.push({name:'',type:'String',nullable:false,_kind:'prim'}); renderEditRows();
           setTimeout(() => { const rows = editWrap.querySelectorAll('[data-kind="prim"] .nd-edit-name'); rows[rows.length-1]?.focus(); }, 30);
         };
         editWrap.appendChild(addPrimBtn);
@@ -5188,9 +5187,14 @@ function showNodeDetail(id) {
             : `<option>${f.type||''}</option>`;
           row.innerHTML = `<input class="nd-edit-name" value="${esc(f.name)}" placeholder="字段名" maxlength="40">
             <select class="nd-edit-type">${typeOpts}</select>
+            <button class="nd-edit-nullable ${f.nullable?'active':''}" title="可空类型 (?)">?</button>
             <button class="nd-edit-del" title="删除">×</button>`;
           row.querySelector('.nd-edit-type').onchange = () => { ndSyncFromDom(); scheduleAutoSave(node.id); };
           row.querySelector('.nd-edit-name').onblur  = () => { ndSyncFromDom(); scheduleAutoSave(node.id); };
+          row.querySelector('.nd-edit-nullable').onclick = () => {
+            ndSyncFromDom(); ndEditFields[idx].nullable = !ndEditFields[idx].nullable;
+            renderEditRows(); scheduleAutoSave(node.id);
+          };
           row.querySelector('.nd-edit-del').onclick  = () => { ndSyncFromDom(); ndEditFields.splice(idx,1); renderEditRows(); scheduleAutoSave(node.id); };
           editWrap.appendChild(row);
         });
@@ -5209,6 +5213,82 @@ function showNodeDetail(id) {
       ndEditFields = [...parsedFields, ...outFKs].map(f => ({...f}));
       renderEditRows();
       body.appendChild(editWrap);
+
+      // ── Standard Actions section ────────────────────────────────────────────
+      let _defObjForActions = {};
+      try { _defObjForActions = JSON.parse(node.definition); } catch {}
+
+      // Helper: build a single action checkbox row
+      const makeActionCb = (key, label, hint) => {
+        const enabled = _defObjForActions[key] === 'true' || _defObjForActions[key] === true;
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;padding:3px 2px;border-radius:4px;user-select:none';
+        row.title = hint;
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = enabled;
+        cb.style.cssText = 'cursor:pointer;accent-color:var(--accent);width:13px;height:13px;flex-shrink:0';
+
+        const lbl = document.createElement('span');
+        lbl.style.cssText = 'font-size:12px;color:var(--text);font-family:"JetBrains Mono","Fira Code",monospace';
+        lbl.textContent = label;
+
+        cb.onchange = async () => {
+          let d = {};
+          try { d = JSON.parse(node.definition); } catch {}
+          if (cb.checked) { d[key] = 'true'; } else { delete d[key]; }
+          const newDef = JSON.stringify(d);
+          node.definition = newDef;
+          setNdStatus('…', 'var(--text-muted)');
+          try {
+            const res = await fetch('/api/proxy/tools/world_modify_definition', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ args: { session_id: worldSessionId, class: node.id, definition: newDef } }),
+            });
+            const data = await res.json();
+            if (data.error) {
+              setNdStatus('⚠ ' + data.error, 'var(--danger)');
+            } else {
+              if (data.canvas) handleCanvasCommand(data.canvas);
+              setNdStatus('✓', 'var(--success)');
+              setTimeout(() => setNdStatus('', ''), 1500);
+            }
+          } catch {
+            setNdStatus('⚠', 'var(--danger)');
+          }
+        };
+
+        row.appendChild(cb);
+        row.appendChild(lbl);
+        return row;
+      };
+
+      // ── 集合动作（Set-level: entities.create(...)）
+      const setActSec = document.createElement('div');
+      setActSec.className = 'nd-sec';
+      setActSec.style.marginTop = '10px';
+      setActSec.textContent = '集合动作';
+      body.appendChild(setActSec);
+
+      const setActWrap = document.createElement('div');
+      setActWrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;padding:4px 0';
+      setActWrap.appendChild(makeActionCb('~create', 'create', 'entities.create({…})  集合层，默认关'));
+      body.appendChild(setActWrap);
+
+      // ── 实体动作（Entity-level: entity.update(...) / entity.delete()）
+      const entActSec = document.createElement('div');
+      entActSec.className = 'nd-sec';
+      entActSec.style.marginTop = '8px';
+      entActSec.textContent = '实体动作';
+      body.appendChild(entActSec);
+
+      const entActWrap = document.createElement('div');
+      entActWrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;padding:4px 0';
+      entActWrap.appendChild(makeActionCb('update', 'update', 'entity.update({…})  参数全部可选'));
+      entActWrap.appendChild(makeActionCb('delete', 'delete', 'entity.delete()'));
+      body.appendChild(entActWrap);
 
       // 微型自动保存指示器（取代 save 按钮）
       const indicator = document.createElement('div');
@@ -5269,16 +5349,22 @@ function showNodeDetail(id) {
     }
   }
 
-  // phase indicator
+  // phase indicator (session is always editable regardless of phase)
   if (node.phase) {
     const sec = document.createElement('div');
     sec.className = 'nd-sec';
-    sec.textContent = '状态';
+    sec.textContent = '发布状态';
     body.appendChild(sec);
     const ph = document.createElement('div');
     ph.className = 'nd-phase';
-    ph.style.color = node.phase === 'live' ? 'var(--success)' : 'var(--text-dim)';
-    ph.textContent  = node.phase === 'live' ? '✓ 已构建' : '○ 设计中';
+    const phaseMap = {
+      'live':    { color: 'var(--success, #4caf50)', label: '● PRODUCTION' },
+      'staging': { color: 'var(--warning, #ff9800)', label: '◉ STAGING' },
+      'design':  { color: 'var(--text-dim)',         label: '○ 草稿' }
+    };
+    const info = phaseMap[node.phase] || phaseMap['design'];
+    ph.style.color = info.color;
+    ph.textContent = info.label;
     body.appendChild(ph);
   }
 
@@ -5316,6 +5402,8 @@ function ndSyncFromDom() {
     if (!isNaN(idx) && ndEditFields[idx]) {
       ndEditFields[idx].name = row.querySelector('.nd-edit-name')?.value?.trim() || '';
       ndEditFields[idx].type = row.querySelector('.nd-edit-type')?.value || '';
+      const nullBtn = row.querySelector('.nd-edit-nullable');
+      if (nullBtn) ndEditFields[idx].nullable = nullBtn.classList.contains('active');
     }
   });
 }
@@ -5342,13 +5430,13 @@ async function saveFieldEdits(nodeId) {
   try { defObj = JSON.parse(node.definition); }
   catch { return; }
 
-  const RESERVED = new Set(['class','class type','plural','module','description','values']);
+  const RESERVED = new Set(['class','class type','plural','module','description','values','~create','update','delete']);
   // 移除所有字符串值字段（primitive 和 FK/枚举引用统一处理）
   for (const key of Object.keys(defObj)) {
     if (RESERVED.has(key) || key.startsWith('//')) continue;
     if (typeof defObj[key] === 'string') delete defObj[key];
   }
-  fields.forEach(f => { defObj[f.name] = f.type; });
+  fields.forEach(f => { defObj[f.name] = f.nullable ? f.type + '?' : f.type; });
 
   const newDef = JSON.stringify(defObj);
   setNdStatus('…', 'var(--text-muted)');
@@ -5381,7 +5469,7 @@ function applyFieldsToGraph(nodeId) {
   const n = graphState.nodes?.find(n => n.id === nodeId);
   if (!n) return;
   // Only primitive fields appear as text inside the graph node
-  n.fields = ndEditFields.filter(f => f._kind === 'prim').map(f => (f.name || '…') + ':' + f.type);
+  n.fields = ndEditFields.filter(f => f._kind === 'prim').map(f => (f.name || '…') + ': ' + f.type + (f.nullable ? '?' : ''));
   renderGraphKeepLayout();
 }
 
