@@ -1361,8 +1361,8 @@ window.addEventListener('DOMContentLoaded', () => {
       <!-- Actions tab content -->
       <div id="designer-tab-actions" class="designer-tab-content" style="display:none">
         <div class="designer-list-header">
-          <span>Action 注册表</span>
-          <button class="designer-add-btn" onclick="addAction()">+ 注册</button>
+          <span data-i18n="ae.listTitle">Action 注册表</span>
+          <button class="designer-add-btn" onclick="addAction()" data-i18n="ae.addBtn">+ 注册</button>
         </div>
         <div id="actions-list" class="designer-list"></div>
       </div>
@@ -1371,32 +1371,32 @@ window.addEventListener('DOMContentLoaded', () => {
       <div id="action-editor-overlay" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:center;justify-content:center;">
         <div id="action-editor-panel" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:min(680px,94%);max-height:90%;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.5);">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0">
-            <span id="ae-title" style="font-size:14px;font-weight:600;color:var(--text)">配置 Action</span>
+            <span id="ae-title" style="font-size:14px;font-weight:600;color:var(--text)" data-i18n="ae.title.config">配置 Action</span>
             <button onclick="closeActionEditor()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px;">×</button>
           </div>
           <div style="padding:16px 18px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:12px;">
             <!-- Row 1: Entity Type + Action Name -->
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
               <div>
-                <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;">Entity Type</label>
+                <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;" data-i18n="ae.entityType">Entity 类型</label>
                 <select id="ae-entity-type" onchange="onEntityTypeInput(this.value)" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
                   <option value="">选择 Entity...</option>
                 </select>
               </div>
               <div>
-                <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;">Action Name</label>
+                <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;" data-i18n="ae.actionName">Action 名称</label>
                 <input id="ae-action-name" type="text" placeholder="e.g. initiate_salary" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
               </div>
             </div>
             <!-- Row 2: Scope checkboxes + Signature -->
             <div style="display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;">
               <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 12px;display:flex;align-items:center;gap:14px;white-space:nowrap;">
-                <span style="font-size:11px;color:var(--text-dim);">作用范围</span>
+                <span style="font-size:11px;color:var(--text-dim);" data-i18n="ae.scope">作用范围</span>
                 <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:var(--text);">
-                  <input type="checkbox" id="ae-scope-entity" checked onchange="onScopeChange()"> Entity
+                  <input type="checkbox" id="ae-scope-entity" checked onchange="onScopeChange()"> <span data-i18n="ae.scopeEntity">Entity</span>
                 </label>
                 <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:var(--text);">
-                  <input type="checkbox" id="ae-scope-collection" onchange="onScopeChange()"> Collection
+                  <input type="checkbox" id="ae-scope-collection" onchange="onScopeChange()"> <span data-i18n="ae.scopeCollection">Collection</span>
                 </label>
               </div>
               <div style="min-width:0;">
@@ -1407,12 +1407,12 @@ window.addEventListener('DOMContentLoaded', () => {
               </div>
             </div>
             <div>
-              <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;">Description</label>
-              <input id="ae-description" type="text" placeholder="Action 用途说明" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
+              <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;" data-i18n="ae.description">描述</label>
+              <input id="ae-description" type="text" data-i18n-placeholder="ae.descriptionHint" placeholder="Action 用途说明" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
             </div>
             <div id="ae-code-section">
               <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-                <label style="font-size:11px;color:var(--text-dim);flex-shrink:0;">函数体</label>
+                <label style="font-size:11px;color:var(--text-dim);flex-shrink:0;" data-i18n="ae.fnBody">函数体</label>
                 <code id="ae-fn-header" style="font-size:12px;color:#9a90ff;font-family:'JetBrains Mono','Fira Code',monospace;background:var(--surface3);padding:2px 7px;border-radius:4px;">(entity) -&gt;</code>
                 <span id="ae-param-hint" style="font-size:10px;color:var(--text-muted);">entity 参数可访问所有字段及集合变量</span>
               </div>
@@ -1427,8 +1427,8 @@ window.addEventListener('DOMContentLoaded', () => {
             <div id="ae-error" style="display:none;color:var(--danger);font-size:12px;padding:8px 12px;background:rgba(255,79,106,.08);border-radius:6px;"></div>
           </div>
           <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0;">
-            <button onclick="closeActionEditor()" style="padding:7px 18px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text-dim);cursor:pointer;font-size:13px;">取消</button>
-            <button id="ae-save-btn" onclick="saveAction()" style="padding:7px 18px;background:var(--accent);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">保存</button>
+            <button onclick="closeActionEditor()" style="padding:7px 18px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text-dim);cursor:pointer;font-size:13px;" data-i18n="ae.cancel">取消</button>
+            <button id="ae-save-btn" onclick="saveAction()" style="padding:7px 18px;background:var(--accent);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;" data-i18n="ae.save">保存</button>
           </div>
         </div>
       </div>
@@ -1690,6 +1690,29 @@ const TRANSLATIONS = {
     'confirm.delete':         '删除该对话？此操作不可恢复。',
     'error.noApiKey':         '⚠️ API Key 无效或未配置。',
     'error.connect':          '连接错误：',
+    'ae.listTitle':           'Action 注册表',
+    'ae.addBtn':              '+ 注册',
+    'ae.title.config':        '配置 Action',
+    'ae.title.new':           '注册新 Action',
+    'ae.entityType':          'Entity 类型',
+    'ae.selectEntity':        '选择 Entity...',
+    'ae.globalEntity':        'global（无实体）',
+    'ae.actionName':          'Action 名称',
+    'ae.scope':               '作用范围',
+    'ae.scopeEntity':         'Entity',
+    'ae.scopeCollection':     'Collection',
+    'ae.description':         '描述',
+    'ae.descriptionHint':     'Action 用途说明',
+    'ae.fnBody':              '函数体',
+    'ae.paramHint':           '{param}（{type}）可访问所有字段；集合变量全局可用',
+    'ae.paramHintGlobal':     '集合变量全局可用（如 employees、salaryRecords）',
+    'ae.cancel':              '取消',
+    'ae.save':                '保存',
+    'ae.saving':              '保存中…',
+    'ae.emptyList':           '暂无 Action，点击「+ 注册」添加',
+    'ae.error.required':      'Entity Type 和 Action Name 不能为空',
+    'ae.error.noCode':        'Outline 代码不能为空',
+    'ae.error.saveFailed':    '保存失败：',
   },
   en: {
     'app.subtitle':           'Ontology Agent',
@@ -1744,6 +1767,29 @@ const TRANSLATIONS = {
     'confirm.delete':         'Delete this conversation? This cannot be undone.',
     'error.noApiKey':         '⚠️ Invalid or missing API Key.',
     'error.connect':          'Connection error: ',
+    'ae.listTitle':           'Action Registry',
+    'ae.addBtn':              '+ Register',
+    'ae.title.config':        'Configure Action',
+    'ae.title.new':           'Register New Action',
+    'ae.entityType':          'Entity Type',
+    'ae.selectEntity':        'Select Entity…',
+    'ae.globalEntity':        'global (no entity)',
+    'ae.actionName':          'Action Name',
+    'ae.scope':               'Scope',
+    'ae.scopeEntity':         'Entity',
+    'ae.scopeCollection':     'Collection',
+    'ae.description':         'Description',
+    'ae.descriptionHint':     'What this action does',
+    'ae.fnBody':              'Function Body',
+    'ae.paramHint':           '{param} ({type}) has access to all fields; collection vars are global',
+    'ae.paramHintGlobal':     'Collection vars are globally available (e.g. employees, salaryRecords)',
+    'ae.cancel':              'Cancel',
+    'ae.save':                'Save',
+    'ae.saving':              'Saving…',
+    'ae.emptyList':           'No actions yet. Click "+ Register" to add one.',
+    'ae.error.required':      'Entity Type and Action Name are required',
+    'ae.error.noCode':        'Outline code cannot be empty',
+    'ae.error.saveFailed':    'Save failed: ',
   }
 };
 
@@ -2035,7 +2081,7 @@ async function loadActionsList() {
   if (!list) return;
   const actions = data.actions || [];
   if (!actions.length) {
-    list.innerHTML = '<div style="padding:20px;color:var(--text-muted);font-size:12px;text-align:center">暂无 Action，点击「+ 注册」添加</div>';
+    list.innerHTML = `<div style="padding:20px;color:var(--text-muted);font-size:12px;text-align:center">${t('ae.emptyList')}</div>`;
     return;
   }
   list.innerHTML = actions.map(a => {
@@ -2366,8 +2412,8 @@ function applyActionEntityType(entityType, existingSig) {
   document.getElementById('ae-signature-display').textContent = sig.replace('->', '→');
   document.getElementById('ae-fn-header').textContent = '(' + paramName + ') ->';
   const hint = et && et !== 'global'
-    ? paramName + '（' + et + '）可访问所有字段；集合变量全局可用'
-    : '集合变量全局可用（如 employees、salaryRecords）';
+    ? t('ae.paramHint').replace('{param}', paramName).replace('{type}', et)
+    : t('ae.paramHintGlobal');
   document.getElementById('ae-param-hint').textContent = hint;
   _aeEntityType = et;
   return paramName;
@@ -2380,7 +2426,7 @@ function onEntityTypeInput(value) {
 /** Populate the entity-type <select> with entities from graphState. */
 function _populateEntityTypeDropdown(currentValue) {
   const sel = document.getElementById('ae-entity-type');
-  sel.innerHTML = '<option value="">选择 Entity...</option>';
+  sel.innerHTML = `<option value="">${t('ae.selectEntity')}</option>`;
   const entities = (graphState.nodes || []).filter(n => n.type === 'entity').map(n => n.id).sort();
   entities.forEach(id => {
     const opt = document.createElement('option');
@@ -2389,7 +2435,7 @@ function _populateEntityTypeDropdown(currentValue) {
     sel.appendChild(opt);
   });
   const globalOpt = document.createElement('option');
-  globalOpt.value = 'global'; globalOpt.textContent = 'global (无实体)';
+  globalOpt.value = 'global'; globalOpt.textContent = t('ae.globalEntity');
   if ('global' === currentValue) globalOpt.selected = true;
   sel.appendChild(globalOpt);
 }
@@ -2627,7 +2673,7 @@ async function refreshEntityGraph() {
 function addAction() {
   _aeMode = 'new';
   _aeOrigEntityType = null; _aeOrigActionName = null;
-  document.getElementById('ae-title').textContent = '注册新 Action';
+  document.getElementById('ae-title').textContent = t('ae.title.new');
   _populateEntityTypeDropdown('');
   document.getElementById('ae-action-name').value = '';
   document.getElementById('ae-type').value = 'outline';
@@ -2649,7 +2695,7 @@ function addAction() {
 async function editAction(entityType, actionName) {
   _aeMode = 'edit';
   _aeOrigEntityType = entityType; _aeOrigActionName = actionName;
-  document.getElementById('ae-title').textContent = `编辑 ${entityType}::${actionName}`;
+  document.getElementById('ae-title').textContent = `${LANG === 'zh' ? '编辑' : 'Edit'} ${entityType}::${actionName}`;
   document.getElementById('ae-error').style.display = 'none';
   // load existing action via proxy
   const data = await worldProxyTool('world_list_actions', { session_id: worldSessionId });
@@ -2840,11 +2886,11 @@ async function saveAction() {
   const scope = _readScope();
 
   if (!entityType || !actionName) {
-    showActionError('Entity Type 和 Action Name 不能为空');
+    showActionError(t('ae.error.required'));
     return;
   }
   if (!bodyCode) {
-    showActionError('Outline 代码不能为空');
+    showActionError(t('ae.error.noCode'));
     return;
   }
 
@@ -2863,7 +2909,7 @@ async function saveAction() {
   const spec = JSON.stringify({ entityType, name: actionName, type, scope, signature, description,
                                 code: fullCode });
   const saveBtn = document.getElementById('ae-save-btn');
-  saveBtn.disabled = true; saveBtn.textContent = '保存中...';
+  saveBtn.disabled = true; saveBtn.textContent = t('ae.saving');
 
   try {
     let result;
@@ -2898,9 +2944,9 @@ async function saveAction() {
     // 自动把 actionName: signature 写入 entity definition，并刷新 schema
     await _syncActionToEntityDefinition(entityType, actionName, signature, scope);
   } catch(e) {
-    showActionError('保存失败：' + e.message);
+    showActionError(t('ae.error.saveFailed') + e.message);
   } finally {
-    saveBtn.disabled = false; saveBtn.textContent = '保存';
+    saveBtn.disabled = false; saveBtn.textContent = t('ae.save');
   }
 }
 
