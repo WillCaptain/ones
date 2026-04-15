@@ -2129,10 +2129,47 @@ function addDecisionTemplate() {
 let _deMode = 'new';        // 'new' | 'edit'
 let _deOrigId  = null;      // original id when editing
 let _deVersion = null;      // optimistic-lock version
+let _deActionsCache = [];   // cached registered actions [{entityType, name}]
 
 const DE_INPUT_STYLE = 'width:100%;box-sizing:border-box;background:var(--surface3);border:1px solid var(--border);border-radius:5px;padding:5px 8px;color:var(--text);font-size:12px;';
 const DE_ROW_STYLE   = 'display:flex;gap:6px;align-items:flex-start;padding:6px 8px;background:var(--surface3);border:1px solid var(--border);border-radius:6px;';
 const DE_DEL_STYLE   = 'flex-shrink:0;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;margin-top:1px;';
+
+/** Infer the return type of a trigger condition expression and update the indicator element. */
+async function _deTriggerInfer(condEl, indicator) {
+  const expr = (condEl.value || '').trim();
+  if (!expr) { indicator.textContent = ''; return; }
+  indicator.textContent = '…';
+  indicator.style.color = 'var(--text-muted)';
+  try {
+    const entityType = (document.getElementById('de-target-ontology')?.value || '').trim();
+    const paramName  = entityType && entityType !== 'global'
+      ? entityType.charAt(0).toLowerCase() + entityType.slice(1) : 'entity';
+    const fullCode   = `(${paramName}) -> ${expr}`;
+    const res = await fetch('/api/proxy/infer-action-type', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: fullCode, session_id: worldSessionId, entity_type: entityType })
+    });
+    const d = await res.json();
+    const ret = d?.returnType || '?';
+    const ok  = ret === 'Boolean' || ret === 'Bool';
+    indicator.textContent = `→ ${ret}` + (ok ? ' ✓' : ' ⚠ expected Boolean');
+    indicator.style.color = ok ? 'var(--success,#4caf50)' : 'var(--warn,#ff9800)';
+  } catch (_) {
+    indicator.textContent = '→ ?';
+    indicator.style.color = 'var(--text-muted)';
+  }
+}
+
+/** Populate an action <select> from the cached actions list. */
+function _dePopulateActionSel(sel, selectedAction) {
+  sel.innerHTML = '<option value="">选择 Action…</option>' +
+    _deActionsCache.map(a => {
+      const v = `${a.entityType}::${a.name}`;
+      return `<option value="${escHtml(v)}"${v === selectedAction ? ' selected' : ''}>${escHtml(v)}</option>`;
+    }).join('');
+}
 
 function _deLabel(text) {
   const l = document.createElement('label');
@@ -2164,9 +2201,55 @@ function deAddRow(section, data) {
   const row = document.createElement('div');
   row.dataset.section = section;
 
-  if (section === 'triggers' || section === 'hints') {
+  if (section === 'triggers') {
+    row.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--surface3);border:1px solid var(--border);border-radius:6px;';
+
+    // Header: description + delete btn
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;gap:6px;align-items:center;';
+    const descIn = _deInput('描述触发条件，如：员工状态变为离职', data.description, DE_INPUT_STYLE + 'flex:1;');
+    descIn.dataset.field = 'description';
+    header.appendChild(descIn);
+    header.appendChild(_deDelBtn(() => row.remove()));
+
+    // Condition area
+    const condWrap = document.createElement('div');
+    condWrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
+
+    const condLabel = document.createElement('div');
+    condLabel.style.cssText = 'display:flex;align-items:center;justify-content:space-between;';
+    const condLabelText = document.createElement('span');
+    condLabelText.style.cssText = 'font-size:10px;color:var(--text-muted);';
+    condLabelText.textContent = 'Condition（Outline 表达式，必须返回 Boolean）';
+    const condIndicator = document.createElement('span');
+    condIndicator.style.cssText = 'font-size:10px;font-family:monospace;';
+    condLabel.appendChild(condLabelText); condLabel.appendChild(condIndicator);
+
+    const condTA = document.createElement('textarea');
+    condTA.rows = 2;
+    condTA.dataset.field = 'expression';
+    condTA.placeholder = 'employee.status == "active" && employee.department().name != "Alumni"';
+    condTA.value = data.expression || '';
+    condTA.style.cssText = DE_INPUT_STYLE + 'font-family:"JetBrains Mono","Fira Code",monospace;font-size:12px;resize:vertical;line-height:1.5;';
+    let _condTimer = null;
+    condTA.addEventListener('input', () => {
+      clearTimeout(_condTimer);
+      _condTimer = setTimeout(() => _deTriggerInfer(condTA, condIndicator), 600);
+    });
+    condTA.addEventListener('blur', () => {
+      clearTimeout(_condTimer);
+      _deTriggerInfer(condTA, condIndicator);
+    });
+
+    condWrap.appendChild(condLabel); condWrap.appendChild(condTA);
+    row.appendChild(header); row.appendChild(condWrap);
+
+    // Trigger initial infer if pre-filled
+    if (data.expression) setTimeout(() => _deTriggerInfer(condTA, condIndicator), 100);
+
+  } else if (section === 'hints') {
     row.style.cssText = DE_ROW_STYLE;
-    const expr = _deInput('Outline 表达式，如 event_entity.status == "grounded"', data.expression, DE_INPUT_STYLE + 'flex:2;');
+    const expr = _deInput('推理提示表达式', data.expression, DE_INPUT_STYLE + 'flex:2;');
     const desc = _deInput('描述', data.description, DE_INPUT_STYLE + 'flex:1;');
     expr.dataset.field = 'expression'; desc.dataset.field = 'description';
     row.appendChild(expr); row.appendChild(desc);
@@ -2174,30 +2257,41 @@ function deAddRow(section, data) {
 
   } else if (section === 'actionDefs') {
     row.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--surface3);border:1px solid var(--border);border-radius:6px;';
-    const top = document.createElement('div');
-    top.style.cssText = 'display:flex;gap:6px;align-items:flex-start;';
 
-    const idWrap = document.createElement('div'); idWrap.style.cssText = 'flex:1;';
-    const idLbl = _deLabel('ID'); const idIn = _deInput('do_wire_fault', data.id, DE_INPUT_STYLE); idIn.dataset.field = 'id';
-    idWrap.appendChild(idLbl); idWrap.appendChild(idIn);
+    // Header: description + delete btn
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;gap:6px;align-items:center;';
+    const semIn = _deInput('描述此行为的业务语义', data.semantics || data.description || '', DE_INPUT_STYLE + 'flex:1;');
+    semIn.dataset.field = 'semantics';
+    header.appendChild(semIn);
+    header.appendChild(_deDelBtn(() => row.remove()));
 
-    const actionWrap = document.createElement('div'); actionWrap.style.cssText = 'flex:2;';
-    const actionLbl = _deLabel('Action (Entity::method)'); const actionIn = _deInput('TransmissionLine::wire_fault_recover', data.action, DE_INPUT_STYLE); actionIn.dataset.field = 'action';
-    actionWrap.appendChild(actionLbl); actionWrap.appendChild(actionIn);
+    // Action dropdown
+    const actionWrap = document.createElement('div');
+    const actionLbl = _deLabel('Action');
+    const actionSel = document.createElement('select');
+    actionSel.dataset.field = 'action';
+    actionSel.style.cssText = DE_INPUT_STYLE;
+    _dePopulateActionSel(actionSel, data.action || '');
+    // auto-derive id from selected action
+    actionSel.addEventListener('change', () => {
+      const idHidden = row.querySelector('[data-field="id"]');
+      if (idHidden) idHidden.value = actionSel.value.replace('::', '_').replace(/[^a-z0-9_]/gi, '_').toLowerCase();
+    });
+    actionWrap.appendChild(actionLbl); actionWrap.appendChild(actionSel);
 
-    top.appendChild(idWrap); top.appendChild(actionWrap);
-    top.appendChild(_deDelBtn(() => row.remove()));
+    // Hidden id field (auto-derived, used by rules section)
+    const idHidden = document.createElement('input');
+    idHidden.type = 'hidden'; idHidden.dataset.field = 'id';
+    idHidden.value = data.id || (data.action || '').replace('::', '_').replace(/[^a-z0-9_]/gi, '_').toLowerCase();
 
-    const semWrap = document.createElement('div');
-    const semLbl = _deLabel('语义描述 Semantics'); const semIn = _deInput('说明该行为的业务语义', data.semantics, DE_INPUT_STYLE); semIn.dataset.field = 'semantics';
-    semWrap.appendChild(semLbl); semWrap.appendChild(semIn);
-
+    // Flags
     const flags = document.createElement('div');
     flags.style.cssText = 'display:flex;gap:14px;';
     flags.innerHTML = `<label style="font-size:12px;color:var(--text-dim);display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" data-field="hasSideEffect" ${data.hasSideEffect ? 'checked' : ''} style="cursor:pointer;"> 有副作用</label>
       <label style="font-size:12px;color:var(--text-dim);display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" data-field="requiresApproval" ${data.requiresApproval ? 'checked' : ''} style="cursor:pointer;"> 需要审批</label>`;
 
-    row.appendChild(top); row.appendChild(semWrap); row.appendChild(flags);
+    row.appendChild(header); row.appendChild(actionWrap); row.appendChild(idHidden); row.appendChild(flags);
 
   } else if (section === 'rules') {
     row.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--surface3);border:1px solid var(--border);border-radius:6px;';
@@ -2310,9 +2404,19 @@ function openDecisionEditor(template) {
       `<option value="${escHtml(id)}"${id === currentOntology ? ' selected' : ''}>${escHtml(id)}</option>`
     ).join('');
   if (currentOntology && !entityNodes.includes(currentOntology)) {
-    // preserve unknown value (e.g. loaded from older data)
     targetOntologySel.innerHTML += `<option value="${escHtml(currentOntology)}" selected>${escHtml(currentOntology)}</option>`;
   }
+
+  // Pre-load registered actions into cache for actionDef dropdowns
+  worldProxyTool('world_list_actions', { session_id: worldSessionId })
+    .then(d => {
+      _deActionsCache = (d?.actions || []);
+      // Refresh any already-rendered actionDef selects
+      document.querySelectorAll('#de-actiondefs [data-field="action"]').forEach(sel => {
+        const cur = sel.value;
+        _dePopulateActionSel(sel, cur);
+      });
+    }).catch(() => {});
 
   // Clear sections
   ['de-triggers','de-actiondefs','de-rules','de-hints'].forEach(id => {
