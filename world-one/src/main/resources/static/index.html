@@ -282,6 +282,13 @@ body.canvas-mode .designer-tab-content { top: 36px; }
   transition: background .12s;
 }
 .designer-add-btn:hover { background: var(--active); }
+.act-sort-btn {
+  border: 1px solid var(--border); background: var(--surface2); color: var(--text-dim);
+  font-size: 10px; padding: 3px 0; border-radius: 4px; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.act-sort-btn:hover { background: var(--active); color: var(--text); }
+.act-sort-btn.active { background: rgba(124,111,247,.15); color: var(--accent); border-color: var(--accent); }
 .designer-list { overflow-y: auto; height: calc(100% - 41px); padding: 8px 0; }
 .designer-item {
   padding: 9px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
@@ -1360,9 +1367,12 @@ window.addEventListener('DOMContentLoaded', () => {
       </div>
       <!-- Actions tab content -->
       <div id="designer-tab-actions" class="designer-tab-content" style="display:none">
-        <div class="designer-list-header">
-          <span data-i18n="ae.listTitle">Action 注册表</span>
-          <button class="designer-add-btn" onclick="addAction()" data-i18n="ae.addBtn">+ 注册</button>
+        <div class="designer-list-header" style="flex-direction:column;align-items:stretch;gap:6px;">
+          <span data-i18n="ae.listTitle" style="font-size:12px;color:var(--text-dim);">Action 注册表</span>
+          <div style="display:flex;gap:4px;">
+            <button id="act-sort-ontology" class="act-sort-btn active" onclick="setActionsSort('ontology')" style="flex:1;">按实体</button>
+            <button id="act-sort-name"     class="act-sort-btn"        onclick="setActionsSort('name')"    style="flex:1;">按名称</button>
+          </div>
         </div>
         <div id="actions-list" class="designer-list"></div>
       </div>
@@ -1379,9 +1389,11 @@ window.addEventListener('DOMContentLoaded', () => {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
               <div>
                 <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;" data-i18n="ae.entityType">Entity 类型</label>
-                <select id="ae-entity-type" onchange="onEntityTypeInput(this.value)" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
-                  <option value="">选择 Entity...</option>
-                </select>
+                <div id="ae-entity-type-display" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;color:var(--accent);font-weight:600;min-height:34px;display:flex;align-items:center;gap:6px;">
+                  <span id="ae-entity-type-label" style="flex:1;">—</span>
+                  <span style="font-size:10px;color:var(--text-muted);font-weight:400;">只读</span>
+                </div>
+                <input id="ae-entity-type" type="hidden" value="">
               </div>
               <div>
                 <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;" data-i18n="ae.actionName">Action 名称</label>
@@ -2075,38 +2087,69 @@ async function loadDecisionsList() {
   }).join('');
 }
 
+let _actionsSort = 'ontology'; // 'ontology' | 'name'
+
+function setActionsSort(mode) {
+  _actionsSort = mode;
+  document.querySelectorAll('.act-sort-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('act-sort-' + mode)?.classList.add('active');
+  loadActionsList();
+}
+
 async function loadActionsList() {
   if (!worldSessionId) return;
   const data = await worldProxyTool('world_list_actions', { session_id: worldSessionId });
   const list = document.getElementById('actions-list');
   if (!list) return;
-  const actions = data.actions || [];
+
+  const raw = data.actions || [];
+  const actions = raw.map(a => {
+    const obj = typeof a === 'string' ? JSON.parse(a) : a;
+    return {
+      entityType: obj.entityType || 'global',
+      name:       obj.name || '',
+      sig:        obj.signature || '',
+      type:       obj.type || 'outline',
+      scope:      obj.scope || 'entity',
+    };
+  });
+
   if (!actions.length) {
     list.innerHTML = `<div style="padding:20px;color:var(--text-muted);font-size:12px;text-align:center">${t('ae.emptyList')}</div>`;
     return;
   }
-  list.innerHTML = actions.map(a => {
-    let entityType = '', name = '', sig = '', type = 'outline';
-    try {
-      const obj = typeof a === 'string' ? JSON.parse(a) : a;
-      entityType = obj.entityType || 'global';
-      name = obj.name || '';
-      sig = obj.signature || '';
-      type = obj.type || 'outline';
-    } catch(e) {}
-    const key = entityType + '::' + name;
+
+  const makeItem = (a) => {
+    const key = a.entityType + '::' + a.name;
     const hasWarning = _actionWarnings.has(key);
-    const warnBadge  = hasWarning
-      ? `<span title="代码存在语法/类型错误" style="color:#f5a623;font-size:11px;margin-left:4px">⚠ 语法问题</span>`
-      : '';
-    return `<div class="designer-item" onclick="editAction('${escHtml(entityType)}','${escHtml(name)}')">
-      <div class="designer-item-title">${escHtml(key)}${warnBadge}</div>
-      <div class="designer-item-sub">${escHtml(sig)}</div>
-      <div class="designer-item-meta">
-        <span class="designer-item-tag ${escHtml(type)}">${escHtml(type)}</span>
-      </div>
+    const warnBadge = hasWarning
+      ? `<span title="代码存在语法/类型错误" style="color:#f5a623;font-size:11px;margin-left:4px">⚠</span>` : '';
+    const sigShort = a.sig ? a.sig.replace('->', '→') : '';
+    return `<div class="designer-item" onclick="editAction('${escHtml(a.entityType)}','${escHtml(a.name)}')">
+      <div class="designer-item-title">${escHtml(a.name)}${warnBadge}</div>
+      <div class="designer-item-sub">${escHtml(sigShort)}</div>
     </div>`;
-  }).join('');
+  };
+
+  if (_actionsSort === 'name') {
+    // flat list sorted by name
+    const sorted = [...actions].sort((a, b) => a.name.localeCompare(b.name));
+    list.innerHTML = sorted.map(makeItem).join('');
+  } else {
+    // group by entity (ontology), entities sorted alphabetically
+    const groups = {};
+    actions.forEach(a => {
+      (groups[a.entityType] = groups[a.entityType] || []).push(a);
+    });
+    const html = Object.keys(groups).sort().map(entity => {
+      const items = groups[entity].sort((a, b) => a.name.localeCompare(b.name));
+      return `<div style="padding:6px 14px 2px;font-size:10px;font-weight:600;color:var(--accent);
+                text-transform:uppercase;letter-spacing:.5px;border-top:1px solid var(--border);">
+                ${escHtml(entity)}</div>` +
+             items.map(makeItem).join('');
+    }).join('');
+    list.innerHTML = html;
+  }
 }
 
 /** decisions/actions tab 的 canvas patch 指令（来自 LLM 工具调用结果）。 */
@@ -2641,21 +2684,17 @@ function onEntityTypeInput(value) {
   applyActionEntityType(value, '');
 }
 
-/** Populate the entity-type <select> with entities from graphState. */
+/** Set the (locked) entity type for the action editor. Updates display badge + hidden input. */
+function _setActionEntityType(entityType) {
+  const val = (entityType || '').trim();
+  document.getElementById('ae-entity-type').value = val;
+  const label = document.getElementById('ae-entity-type-label');
+  if (label) label.textContent = val || '—';
+}
+
+/** @deprecated kept for any lingering callers; delegates to _setActionEntityType */
 function _populateEntityTypeDropdown(currentValue) {
-  const sel = document.getElementById('ae-entity-type');
-  sel.innerHTML = `<option value="">${t('ae.selectEntity')}</option>`;
-  const entities = (graphState.nodes || []).filter(n => n.type === 'entity').map(n => n.id).sort();
-  entities.forEach(id => {
-    const opt = document.createElement('option');
-    opt.value = id; opt.textContent = id;
-    if (id === currentValue) opt.selected = true;
-    sel.appendChild(opt);
-  });
-  const globalOpt = document.createElement('option');
-  globalOpt.value = 'global'; globalOpt.textContent = t('ae.globalEntity');
-  if ('global' === currentValue) globalOpt.selected = true;
-  sel.appendChild(globalOpt);
+  _setActionEntityType(currentValue);
 }
 
 /** Ensure at least one scope checkbox is always checked. */
@@ -2888,15 +2927,15 @@ async function refreshEntityGraph() {
   } catch(e) { /* 静默失败 */ }
 }
 
-function addAction() {
+function addAction(presetEntityType) {
   _aeMode = 'new';
   _aeOrigEntityType = null; _aeOrigActionName = null;
   document.getElementById('ae-title').textContent = t('ae.title.new');
-  _populateEntityTypeDropdown('');
+  _setActionEntityType(presetEntityType || '');
   document.getElementById('ae-action-name').value = '';
   document.getElementById('ae-type').value = 'outline';
   _applyScope('entity');
-  applyActionEntityType('', '');
+  applyActionEntityType(presetEntityType || '', '');
   document.getElementById('ae-description').value = '';
   document.getElementById('ae-url').value = '';
   document.getElementById('ae-error').style.display = 'none';
@@ -2920,7 +2959,7 @@ async function editAction(entityType, actionName) {
   const actions = data?.actions || [];
   const found = actions.find(a => a.entityType === entityType && a.name === actionName);
   const actualEntityType = found?.entityType || entityType;
-  _populateEntityTypeDropdown(actualEntityType);
+  _setActionEntityType(actualEntityType);
   document.getElementById('ae-action-name').value  = found?.name       || actionName;
   document.getElementById('ae-type').value          = 'outline';
   // Restore scope: from spec or derive from entity JSON key prefix
@@ -6082,14 +6121,9 @@ async function _ndLoadAndRenderActions(entityId, wrap) {
   }
 }
 
-/** Open action editor modal with entityType pre-filled for adding a new action. */
+/** Open action editor modal with entityType locked for adding a new action. */
 function _ndAddAction(entityId) {
-  addAction();  // opens action editor modal
-  // After modal opens, select the entity in the dropdown
-  setTimeout(() => {
-    _populateEntityTypeDropdown(entityId);
-    onEntityTypeInput(entityId);
-  }, 50);
+  addAction(entityId);
 }
 
 /** Delete an action and refresh the property panel action list. */
