@@ -1467,7 +1467,7 @@ window.addEventListener('DOMContentLoaded', () => {
             <!-- Target Ontology -->
             <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;">
               <div style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">目标本体 Target Ontology</div>
-              <select id="de-target-ontology" style="width:100%;box-sizing:border-box;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
+              <select id="de-target-ontology" onchange="_deUpdateTriggerHeaders()" style="width:100%;box-sizing:border-box;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
                 <option value="">选择目标实体…</option>
               </select>
             </div>
@@ -2135,6 +2135,43 @@ const DE_INPUT_STYLE = 'width:100%;box-sizing:border-box;background:var(--surfac
 const DE_ROW_STYLE   = 'display:flex;gap:6px;align-items:flex-start;padding:6px 8px;background:var(--surface3);border:1px solid var(--border);border-radius:6px;';
 const DE_DEL_STYLE   = 'flex-shrink:0;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;margin-top:1px;';
 
+/** Derive param name from current Target Ontology selection. */
+function _deTriggerParamName() {
+  const et = (document.getElementById('de-target-ontology')?.value || '').trim();
+  return et && et !== 'global' ? et.charAt(0).toLowerCase() + et.slice(1) : 'entity';
+}
+
+/** Update fn-header + param-hint for a single trigger row. */
+function _deTriggerUpdateFnHeader(fnHead, paramHint) {
+  const et = (document.getElementById('de-target-ontology')?.value || '').trim();
+  const param = et && et !== 'global' ? et.charAt(0).toLowerCase() + et.slice(1) : 'entity';
+  fnHead.textContent = `(${param}) -> Boolean`;
+  paramHint.textContent = et && et !== 'global'
+    ? `${param}（${et}）可访问所有字段；集合变量全局可用`
+    : '集合变量全局可用（如 employees、salaryRecords）';
+}
+
+/** Refresh fn-header + param-hint + placeholder for every trigger row when Target Ontology changes. */
+function _deUpdateTriggerHeaders() {
+  const et = (document.getElementById('de-target-ontology')?.value || '').trim();
+  const param = et && et !== 'global' ? et.charAt(0).toLowerCase() + et.slice(1) : 'entity';
+  const placeholder = et && et !== 'global'
+    ? `${param}.status == "active" && ${param}.age > 18`
+    : 'employees.filter(e -> e.status == "active").length > 0';
+  document.querySelectorAll('#de-triggers .de-trigger-fn-header').forEach(fnHead => {
+    const paramHint = fnHead.closest('div')?.querySelector('.de-trigger-param-hint');
+    fnHead.textContent = `(${param}) -> Boolean`;
+    if (paramHint) {
+      paramHint.textContent = et && et !== 'global'
+        ? `${param}（${et}）可访问所有字段；集合变量全局可用`
+        : '集合变量全局可用（如 employees、salaryRecords）';
+    }
+  });
+  document.querySelectorAll('#de-triggers [data-field="expression"]').forEach(ta => {
+    ta.placeholder = placeholder;
+  });
+}
+
 /** Infer the return type of a trigger condition expression and update the indicator element. */
 async function _deTriggerInfer(condEl, indicator) {
   const expr = (condEl.value || '').trim();
@@ -2212,25 +2249,35 @@ function deAddRow(section, data) {
     header.appendChild(descIn);
     header.appendChild(_deDelBtn(() => row.remove()));
 
+    // Function header bar — mirrors action editor style
+    const fnBar = document.createElement('div');
+    fnBar.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    const fnHead = document.createElement('code');
+    fnHead.className = 'de-trigger-fn-header';
+    fnHead.style.cssText = "font-size:12px;color:#9a90ff;font-family:'JetBrains Mono','Fira Code',monospace;background:var(--surface2);padding:2px 8px;border-radius:4px;white-space:nowrap;";
+    const paramHint = document.createElement('span');
+    paramHint.className = 'de-trigger-param-hint';
+    paramHint.style.cssText = 'font-size:10px;color:var(--text-muted);';
+    fnBar.appendChild(fnHead); fnBar.appendChild(paramHint);
+    // Fill immediately from current Target Ontology
+    _deTriggerUpdateFnHeader(fnHead, paramHint);
+
     // Condition area
     const condWrap = document.createElement('div');
     condWrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
 
-    const condLabel = document.createElement('div');
-    condLabel.style.cssText = 'display:flex;align-items:center;justify-content:space-between;';
-    const condLabelText = document.createElement('span');
-    condLabelText.style.cssText = 'font-size:10px;color:var(--text-muted);';
-    condLabelText.textContent = 'Condition（Outline 表达式，必须返回 Boolean）';
+    const condTopBar = document.createElement('div');
+    condTopBar.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;';
     const condIndicator = document.createElement('span');
     condIndicator.style.cssText = 'font-size:10px;font-family:monospace;';
-    condLabel.appendChild(condLabelText); condLabel.appendChild(condIndicator);
+    condTopBar.appendChild(condIndicator);
 
     const condTA = document.createElement('textarea');
     condTA.rows = 2;
     condTA.dataset.field = 'expression';
-    condTA.placeholder = 'employee.status == "active" && employee.department().name != "Alumni"';
     condTA.value = data.expression || '';
-    condTA.style.cssText = DE_INPUT_STYLE + 'font-family:"JetBrains Mono","Fira Code",monospace;font-size:12px;resize:vertical;line-height:1.5;';
+    condTA.style.cssText = DE_INPUT_STYLE + "font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;resize:vertical;line-height:1.5;";
+    // placeholder updated by _deTriggerUpdateFnHeader
     let _condTimer = null;
     condTA.addEventListener('input', () => {
       clearTimeout(_condTimer);
@@ -2241,10 +2288,10 @@ function deAddRow(section, data) {
       _deTriggerInfer(condTA, condIndicator);
     });
 
-    condWrap.appendChild(condLabel); condWrap.appendChild(condTA);
-    row.appendChild(header); row.appendChild(condWrap);
+    condWrap.appendChild(condTopBar); condWrap.appendChild(condTA);
+    row.appendChild(header); row.appendChild(fnBar); row.appendChild(condWrap);
 
-    // Trigger initial infer if pre-filled
+    // Initial infer if pre-filled
     if (data.expression) setTimeout(() => _deTriggerInfer(condTA, condIndicator), 100);
 
   } else if (section === 'hints') {
