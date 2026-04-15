@@ -2226,16 +2226,18 @@ async function _deTriggerInferEditor(editor, indicator) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: fullCode, session_id: worldSessionId, entity_type: entityType })
     });
-    const d   = await res.json();
-    const ret = d?.returnType || '?';
-    const ok  = ret === 'Boolean' || ret === 'Bool';
-    indicator.textContent = `→ ${ret}` + (ok ? ' ✓' : ' ⚠ must be Boolean');
+    const d    = await res.json();
+    const raw  = d?.returnType || '?';
+    // If backend returns a full signature like "A->Bool", extract just the return type
+    const ret  = raw.includes('->') ? raw.slice(raw.lastIndexOf('->') + 2).trim() : raw;
+    const ok   = ret === 'Boolean' || ret === 'Bool';
+    indicator.textContent = `→ ${ret}` + (ok ? ' ✓' : ' ⚠ must be Bool');
     indicator.style.color = ok ? 'var(--success,#4caf50)' : 'var(--warn,#ff9800)';
     // Add Monaco marker if not Boolean
     if (editor.getModel()) {
       const markers = ok ? [] : [{
         severity: 4, // Warning
-        message: `Condition must return Boolean, but returns ${ret}`,
+        message: `Condition must return Bool, but returns ${ret}`,
         startLineNumber: 1, startColumn: 1,
         endLineNumber: editor.getModel().getLineCount(), endColumn: 1,
       }];
