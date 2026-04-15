@@ -1467,7 +1467,7 @@ window.addEventListener('DOMContentLoaded', () => {
             <!-- Target Ontology -->
             <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;">
               <div style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">目标本体 Target Ontology</div>
-              <select id="de-target-ontology" onchange="_deUpdateTriggerHeaders()" style="width:100%;box-sizing:border-box;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
+              <select id="de-target-ontology" onchange="_deUpdateTriggerHeaders();_deRefreshActionDefDropdowns();" style="width:100%;box-sizing:border-box;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
                 <option value="">选择目标实体…</option>
               </select>
             </div>
@@ -2249,10 +2249,21 @@ async function _deTriggerInferEditor(editor, indicator) {
   }
 }
 
-/** Populate an action <select> from the cached actions list. */
+/** Re-populate all actionDef selects when Target Ontology changes. */
+function _deRefreshActionDefDropdowns() {
+  document.querySelectorAll('#de-actiondefs [data-field="action"]').forEach(sel => {
+    _dePopulateActionSel(sel, sel.value);
+  });
+}
+
+/** Populate an action <select>, filtered to the current Target Ontology entity. */
 function _dePopulateActionSel(sel, selectedAction) {
+  const targetEntity = (document.getElementById('de-target-ontology')?.value || '').trim();
+  const filtered = targetEntity
+    ? _deActionsCache.filter(a => a.entityType === targetEntity)
+    : _deActionsCache;
   sel.innerHTML = '<option value="">选择 Action…</option>' +
-    _deActionsCache.map(a => {
+    filtered.map(a => {
       const v = `${a.entityType}::${a.name}`;
       return `<option value="${escHtml(v)}"${v === selectedAction ? ' selected' : ''}>${escHtml(v)}</option>`;
     }).join('');
@@ -3150,6 +3161,9 @@ async function saveAction() {
     loadActionsList();
     // 自动把 actionName: signature 写入 entity definition，并刷新 schema
     await _syncActionToEntityDefinition(entityType, actionName, signature, scope);
+    // 如果 property panel 当前显示的是同一个 entity，刷新其 actions 列表
+    const ndWrap = document.getElementById('nd-actions-list-' + entityType);
+    if (ndWrap) _ndLoadAndRenderActions(entityType, ndWrap);
   } catch(e) {
     showActionError(t('ae.error.saveFailed') + e.message);
   } finally {
@@ -5815,19 +5829,30 @@ function showNodeDetail(id) {
       });
     }
 
-    // actions (read-only always)
-    const actions = node.actions || [];
-    if (actions.length) {
-      const sec2 = document.createElement('div');
-      sec2.className = 'nd-sec';
-      sec2.textContent = 'Action';
-      body.appendChild(sec2);
-      actions.forEach(a => {
-        const d = document.createElement('div');
-        d.className = 'nd-action';
-        d.textContent = '⚡ ' + a;
-        body.appendChild(d);
-      });
+    // ── Actions section (editable) ──────────────────────────────────────────
+    {
+      const actSec = document.createElement('div');
+      actSec.className = 'nd-sec';
+      actSec.style.marginTop = '10px';
+      actSec.style.display = 'flex';
+      actSec.style.alignItems = 'center';
+      actSec.style.justifyContent = 'space-between';
+      const actSecLabel = document.createElement('span');
+      actSecLabel.textContent = 'Actions';
+      const addActBtn = document.createElement('button');
+      addActBtn.style.cssText = 'background:none;border:1px solid var(--border);border-radius:4px;color:var(--accent);cursor:pointer;font-size:10px;padding:1px 7px;';
+      addActBtn.textContent = '+ 添加';
+      addActBtn.onclick = () => _ndAddAction(node.id);
+      actSec.appendChild(actSecLabel); actSec.appendChild(addActBtn);
+      body.appendChild(actSec);
+
+      const actListWrap = document.createElement('div');
+      actListWrap.id = 'nd-actions-list-' + node.id;
+      actListWrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;padding:2px 0;';
+      body.appendChild(actListWrap);
+
+      // Load and render actions for this entity
+      _ndLoadAndRenderActions(node.id, actListWrap);
     }
   }
 
@@ -6014,6 +6039,88 @@ function setNdStatus(msg, color) {
   if (!el) return;
   el.textContent = msg;
   el.style.color = color || 'var(--text-dim)';
+}
+
+// ── Property Panel: Actions section helpers ──────────────────────────────────
+
+/** Load actions for entityId and render into wrap. */
+async function _ndLoadAndRenderActions(entityId, wrap) {
+  wrap.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:2px 0">加载中…</div>';
+  try {
+    const data = await worldProxyTool('world_list_actions', { session_id: worldSessionId });
+    const actions = (data?.actions || []).filter(a => a.entityType === entityId);
+    wrap.innerHTML = '';
+    if (!actions.length) {
+      wrap.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:2px 0">暂无 Action</div>';
+      return;
+    }
+    actions.forEach(a => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:4px;padding:3px 0;border-bottom:1px solid var(--border);';
+      const nameSpan = document.createElement('span');
+      nameSpan.style.cssText = 'flex:1;font-size:12px;color:var(--success);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      nameSpan.textContent = '⚡ ' + a.name;
+      nameSpan.title = a.signature || '';
+      const sigSpan = document.createElement('span');
+      sigSpan.style.cssText = 'font-size:10px;color:var(--text-muted);font-family:monospace;flex-shrink:0;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      sigSpan.textContent = a.signature ? a.signature.replace('->', '→') : '';
+      const editBtn = document.createElement('button');
+      editBtn.style.cssText = 'background:none;border:1px solid var(--border);border-radius:3px;color:var(--text-dim);cursor:pointer;font-size:10px;padding:1px 6px;flex-shrink:0;';
+      editBtn.textContent = '编辑';
+      editBtn.onclick = () => editAction(entityId, a.name);
+      const delBtn = document.createElement('button');
+      delBtn.style.cssText = 'background:none;border:1px solid var(--border);border-radius:3px;color:var(--danger);cursor:pointer;font-size:10px;padding:1px 6px;flex-shrink:0;';
+      delBtn.textContent = '×';
+      delBtn.title = '删除此 Action';
+      delBtn.onclick = () => _ndDeleteAction(entityId, a.name, wrap);
+      row.appendChild(nameSpan); row.appendChild(sigSpan);
+      row.appendChild(editBtn); row.appendChild(delBtn);
+      wrap.appendChild(row);
+    });
+  } catch (e) {
+    wrap.innerHTML = `<div style="font-size:11px;color:var(--danger)">加载失败</div>`;
+  }
+}
+
+/** Open action editor modal with entityType pre-filled for adding a new action. */
+function _ndAddAction(entityId) {
+  addAction();  // opens action editor modal
+  // After modal opens, select the entity in the dropdown
+  setTimeout(() => {
+    _populateEntityTypeDropdown(entityId);
+    onEntityTypeInput(entityId);
+  }, 50);
+}
+
+/** Delete an action and refresh the property panel action list. */
+async function _ndDeleteAction(entityId, actionName, wrap) {
+  if (!confirm(`删除 ${entityId}::${actionName}？`)) return;
+  try {
+    await worldProxyTool('world_remove_action', {
+      session_id: worldSessionId,
+      entity_type: entityId,
+      action_name: actionName,
+    });
+    // Also remove from entity definition
+    const node = (graphState.nodes || []).find(n => n.id === entityId);
+    if (node?.definition) {
+      try {
+        const d = JSON.parse(node.definition);
+        delete d[actionName]; delete d['~' + actionName]; delete d['*' + actionName];
+        const newDef = JSON.stringify(d);
+        node.definition = newDef;
+        await fetch('/api/proxy/tools/world_modify_definition', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ args: { session_id: worldSessionId, class: entityId, definition: newDef } }),
+        }).then(r => r.json()).then(data => { if (data.canvas) handleCanvasCommand(data.canvas); });
+      } catch {}
+    }
+    _ndLoadAndRenderActions(entityId, wrap);
+    loadActionsList();
+  } catch (e) {
+    alert('删除失败：' + e.message);
+  }
 }
 
 function askAboutNode() {
