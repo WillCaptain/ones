@@ -2135,15 +2135,18 @@ const DE_INPUT_STYLE = 'width:100%;box-sizing:border-box;background:var(--surfac
 const DE_ROW_STYLE   = 'display:flex;gap:6px;align-items:flex-start;padding:6px 8px;background:var(--surface3);border:1px solid var(--border);border-radius:6px;';
 const DE_DEL_STYLE   = 'flex-shrink:0;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;margin-top:1px;';
 
-/** Derive param name from current Target Ontology selection. */
+/** Current entity type from Target Ontology selector. */
+function _deTriggerEntityType() {
+  return (document.getElementById('de-target-ontology')?.value || '').trim();
+}
 function _deTriggerParamName() {
-  const et = (document.getElementById('de-target-ontology')?.value || '').trim();
+  const et = _deTriggerEntityType();
   return et && et !== 'global' ? et.charAt(0).toLowerCase() + et.slice(1) : 'entity';
 }
 
 /** Update fn-header + param-hint for a single trigger row. */
 function _deTriggerUpdateFnHeader(fnHead, paramHint) {
-  const et = (document.getElementById('de-target-ontology')?.value || '').trim();
+  const et = _deTriggerEntityType();
   const param = et && et !== 'global' ? et.charAt(0).toLowerCase() + et.slice(1) : 'entity';
   fnHead.textContent = `(${param}) -> Boolean`;
   paramHint.textContent = et && et !== 'global'
@@ -2151,48 +2154,93 @@ function _deTriggerUpdateFnHeader(fnHead, paramHint) {
     : '集合变量全局可用（如 employees、salaryRecords）';
 }
 
-/** Refresh fn-header + param-hint + placeholder for every trigger row when Target Ontology changes. */
+/** Refresh fn-headers for all trigger rows when Target Ontology changes. */
 function _deUpdateTriggerHeaders() {
-  const et = (document.getElementById('de-target-ontology')?.value || '').trim();
-  const param = et && et !== 'global' ? et.charAt(0).toLowerCase() + et.slice(1) : 'entity';
-  const placeholder = et && et !== 'global'
-    ? `${param}.status == "active" && ${param}.age > 18`
-    : 'employees.filter(e -> e.status == "active").length > 0';
   document.querySelectorAll('#de-triggers .de-trigger-fn-header').forEach(fnHead => {
-    const paramHint = fnHead.closest('div')?.querySelector('.de-trigger-param-hint');
-    fnHead.textContent = `(${param}) -> Boolean`;
-    if (paramHint) {
-      paramHint.textContent = et && et !== 'global'
-        ? `${param}（${et}）可访问所有字段；集合变量全局可用`
-        : '集合变量全局可用（如 employees、salaryRecords）';
-    }
-  });
-  document.querySelectorAll('#de-triggers [data-field="expression"]').forEach(ta => {
-    ta.placeholder = placeholder;
+    const paramHint = fnHead.parentElement?.querySelector('.de-trigger-param-hint');
+    _deTriggerUpdateFnHeader(fnHead, paramHint || { textContent: '' });
   });
 }
 
-/** Infer the return type of a trigger condition expression and update the indicator element. */
-async function _deTriggerInfer(condEl, indicator) {
-  const expr = (condEl.value || '').trim();
-  if (!expr) { indicator.textContent = ''; return; }
+/**
+ * Create a Monaco editor inside `container` for a trigger condition.
+ * Returns a Promise that resolves to the Monaco editor handle.
+ * Syncs editor value → hiddenInput so collectRows works unchanged.
+ */
+function _createTriggerConditionEditor(container, hiddenInput, indicator, initialValue) {
+  return OutlineLang.createEditor(container, {
+    value: initialValue || '',
+    completions: {
+      url: '/api/proxy/completions',
+      getExtraBody: (code, offset) => ({
+        session_id: worldSessionId,
+        entity_type: _deTriggerEntityType(),
+      }),
+      triggerChars: ['.', ' '],
+    },
+    diagnostics: {
+      validateUrl:    '/api/proxy/validate',
+      getRequestBody: code => ({
+        session_id: worldSessionId,
+        code: _deTriggerWrapCode(code),
+        entity_type: _deTriggerEntityType(),
+      }),
+    },
+    typeMapUrl: _typeMapUrl(),
+    editorOptions: { fontSize: 12, lineNumbers: 'off', wordWrap: 'on', scrollBeyondLastLine: false },
+  }).then(handle => {
+    const editor = handle.editor;
+    let _inferTimer = null;
+    editor.onDidChangeModelContent(() => {
+      const code = editor.getValue();
+      hiddenInput.value = code;
+      clearTimeout(_inferTimer);
+      _inferTimer = setTimeout(() => _deTriggerInferEditor(editor, indicator), 700);
+    });
+    // Initial inference if pre-filled
+    if (initialValue) setTimeout(() => _deTriggerInferEditor(editor, indicator), 200);
+    return handle;
+  });
+}
+
+/** Wrap trigger condition body into a full lambda for inference. */
+function _deTriggerWrapCode(body) {
+  const param = _deTriggerParamName();
+  const et    = _deTriggerEntityType();
+  const trimmed = (body || '').trim();
+  // Use block form so multi-line is valid; last expr is the return value
+  return trimmed ? `(${param}) -> {\n${trimmed}\n}` : `(${param}) -> unit`;
+}
+
+/** Infer return type of trigger condition and show Boolean validation in indicator. */
+async function _deTriggerInferEditor(editor, indicator) {
+  const body = (editor.getValue() || '').trim();
+  if (!body) { indicator.textContent = ''; return; }
   indicator.textContent = '…';
   indicator.style.color = 'var(--text-muted)';
   try {
-    const entityType = (document.getElementById('de-target-ontology')?.value || '').trim();
-    const paramName  = entityType && entityType !== 'global'
-      ? entityType.charAt(0).toLowerCase() + entityType.slice(1) : 'entity';
-    const fullCode   = `(${paramName}) -> ${expr}`;
+    const fullCode   = _deTriggerWrapCode(body);
+    const entityType = _deTriggerEntityType();
     const res = await fetch('/api/proxy/infer-action-type', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: fullCode, session_id: worldSessionId, entity_type: entityType })
     });
-    const d = await res.json();
+    const d   = await res.json();
     const ret = d?.returnType || '?';
     const ok  = ret === 'Boolean' || ret === 'Bool';
-    indicator.textContent = `→ ${ret}` + (ok ? ' ✓' : ' ⚠ expected Boolean');
+    indicator.textContent = `→ ${ret}` + (ok ? ' ✓' : ' ⚠ must be Boolean');
     indicator.style.color = ok ? 'var(--success,#4caf50)' : 'var(--warn,#ff9800)';
+    // Add Monaco marker if not Boolean
+    if (editor.getModel()) {
+      const markers = ok ? [] : [{
+        severity: 4, // Warning
+        message: `Condition must return Boolean, but returns ${ret}`,
+        startLineNumber: 1, startColumn: 1,
+        endLineNumber: editor.getModel().getLineCount(), endColumn: 1,
+      }];
+      monaco.editor.setModelMarkers(editor.getModel(), 'trigger-type', markers);
+    }
   } catch (_) {
     indicator.textContent = '→ ?';
     indicator.style.color = 'var(--text-muted)';
@@ -2241,7 +2289,7 @@ function deAddRow(section, data) {
   if (section === 'triggers') {
     row.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--surface3);border:1px solid var(--border);border-radius:6px;';
 
-    // Header: description + delete btn
+    // Row 1: description + delete
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;gap:6px;align-items:center;';
     const descIn = _deInput('描述触发条件，如：员工状态变为离职', data.description, DE_INPUT_STYLE + 'flex:1;');
@@ -2249,7 +2297,7 @@ function deAddRow(section, data) {
     header.appendChild(descIn);
     header.appendChild(_deDelBtn(() => row.remove()));
 
-    // Function header bar — mirrors action editor style
+    // Row 2: fn-header bar (mirrors action editor)
     const fnBar = document.createElement('div');
     fnBar.style.cssText = 'display:flex;align-items:center;gap:8px;';
     const fnHead = document.createElement('code');
@@ -2258,41 +2306,43 @@ function deAddRow(section, data) {
     const paramHint = document.createElement('span');
     paramHint.className = 'de-trigger-param-hint';
     paramHint.style.cssText = 'font-size:10px;color:var(--text-muted);';
-    fnBar.appendChild(fnHead); fnBar.appendChild(paramHint);
-    // Fill immediately from current Target Ontology
     _deTriggerUpdateFnHeader(fnHead, paramHint);
+    fnBar.appendChild(fnHead); fnBar.appendChild(paramHint);
 
-    // Condition area
-    const condWrap = document.createElement('div');
-    condWrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
-
+    // Row 3: type indicator (right-aligned)
     const condTopBar = document.createElement('div');
     condTopBar.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;';
     const condIndicator = document.createElement('span');
     condIndicator.style.cssText = 'font-size:10px;font-family:monospace;';
     condTopBar.appendChild(condIndicator);
 
-    const condTA = document.createElement('textarea');
-    condTA.rows = 2;
-    condTA.dataset.field = 'expression';
-    condTA.value = data.expression || '';
-    condTA.style.cssText = DE_INPUT_STYLE + "font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;resize:vertical;line-height:1.5;";
-    // placeholder updated by _deTriggerUpdateFnHeader
-    let _condTimer = null;
-    condTA.addEventListener('input', () => {
-      clearTimeout(_condTimer);
-      _condTimer = setTimeout(() => _deTriggerInfer(condTA, condIndicator), 600);
-    });
-    condTA.addEventListener('blur', () => {
-      clearTimeout(_condTimer);
-      _deTriggerInfer(condTA, condIndicator);
-    });
+    // Row 4: Monaco editor container
+    const monacoContainer = document.createElement('div');
+    monacoContainer.style.cssText = 'height:80px;border:1px solid var(--border);border-radius:5px;overflow:hidden;';
 
-    condWrap.appendChild(condTopBar); condWrap.appendChild(condTA);
-    row.appendChild(header); row.appendChild(fnBar); row.appendChild(condWrap);
+    // Hidden input to hold expression value for collectRows
+    const hiddenExpr = document.createElement('input');
+    hiddenExpr.type = 'hidden';
+    hiddenExpr.dataset.field = 'expression';
+    hiddenExpr.value = data.expression || '';
 
-    // Initial infer if pre-filled
-    if (data.expression) setTimeout(() => _deTriggerInfer(condTA, condIndicator), 100);
+    row.appendChild(header); row.appendChild(fnBar);
+    row.appendChild(condTopBar); row.appendChild(monacoContainer);
+    row.appendChild(hiddenExpr);
+
+    // Create Monaco editor after DOM is attached
+    setTimeout(() => {
+      _createTriggerConditionEditor(monacoContainer, hiddenExpr, condIndicator, data.expression || '')
+        .catch(err => {
+          // Fallback: show textarea if Monaco fails
+          monacoContainer.style.display = 'none';
+          const ta = document.createElement('textarea');
+          ta.rows = 2; ta.value = data.expression || '';
+          ta.style.cssText = DE_INPUT_STYLE + "font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;";
+          ta.addEventListener('input', () => { hiddenExpr.value = ta.value; });
+          row.insertBefore(ta, hiddenExpr);
+        });
+    }, 0);
 
   } else if (section === 'hints') {
     row.style.cssText = DE_ROW_STYLE;
