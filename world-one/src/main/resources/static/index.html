@@ -282,13 +282,12 @@ body.canvas-mode .designer-tab-content { top: 36px; }
   transition: background .12s;
 }
 .designer-add-btn:hover { background: var(--active); }
-.act-sort-btn {
-  border: 1px solid var(--border); background: var(--surface2); color: var(--text-dim);
-  font-size: 10px; padding: 3px 0; border-radius: 4px; cursor: pointer;
-  transition: background .12s, color .12s;
-}
-.act-sort-btn:hover { background: var(--active); color: var(--text); }
-.act-sort-btn.active { background: rgba(124,111,247,.15); color: var(--accent); border-color: var(--accent); }
+.act-th { color: var(--text-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+.act-th:hover { color: var(--text); background: var(--surface2); }
+.act-th.sort-asc, .act-th.sort-desc { color: var(--accent); }
+#actions-table tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; transition: background .1s; }
+#actions-table tbody tr:hover { background: var(--surface2); }
+#actions-table td { padding: 7px 10px; vertical-align: middle; }
 .designer-list { overflow-y: auto; height: calc(100% - 41px); padding: 8px 0; }
 .designer-item {
   padding: 9px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
@@ -1366,15 +1365,22 @@ window.addEventListener('DOMContentLoaded', () => {
         <div id="decisions-list" class="designer-list"></div>
       </div>
       <!-- Actions tab content -->
-      <div id="designer-tab-actions" class="designer-tab-content" style="display:none">
-        <div class="designer-list-header" style="flex-direction:column;align-items:stretch;gap:6px;">
+      <div id="designer-tab-actions" class="designer-tab-content" style="display:none;flex-direction:column;">
+        <div class="designer-list-header">
           <span data-i18n="ae.listTitle" style="font-size:12px;color:var(--text-dim);">Action 注册表</span>
-          <div style="display:flex;gap:4px;">
-            <button id="act-sort-ontology" class="act-sort-btn active" onclick="setActionsSort('ontology')" style="flex:1;">按实体</button>
-            <button id="act-sort-name"     class="act-sort-btn"        onclick="setActionsSort('name')"    style="flex:1;">按名称</button>
-          </div>
         </div>
-        <div id="actions-list" class="designer-list"></div>
+        <div style="flex:1;overflow-y:auto;">
+          <table id="actions-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+              <tr style="border-bottom:2px solid var(--border);position:sticky;top:0;background:var(--surface);">
+                <th id="act-th-name"    class="act-th" onclick="toggleActSort('name')"    style="text-align:left;padding:7px 10px;cursor:pointer;user-select:none;width:44%;">Action <span id="act-arrow-name"></span></th>
+                <th id="act-th-entity"  class="act-th" onclick="toggleActSort('entity')"  style="text-align:left;padding:7px 8px;cursor:pointer;user-select:none;width:28%;">Entity <span id="act-arrow-entity"></span></th>
+                <th id="act-th-updated" class="act-th" onclick="toggleActSort('updated')" style="text-align:left;padding:7px 8px;cursor:pointer;user-select:none;width:28%;">更新时间 <span id="act-arrow-updated"></span></th>
+              </tr>
+            </thead>
+            <tbody id="actions-list"></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Action Editor Modal -->
@@ -2087,23 +2093,79 @@ async function loadDecisionsList() {
   }).join('');
 }
 
-let _actionsSort = 'ontology'; // 'ontology' | 'name'
+// Actions table sort state: { col: 'name'|'entity'|'updated', dir: 'asc'|'desc' }
+let _actionsSort = { col: 'entity', dir: 'asc' };
 
-function setActionsSort(mode) {
-  _actionsSort = mode;
-  document.querySelectorAll('.act-sort-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('act-sort-' + mode)?.classList.add('active');
-  loadActionsList();
+function toggleActSort(col) {
+  if (_actionsSort.col === col) {
+    _actionsSort.dir = _actionsSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _actionsSort = { col, dir: 'asc' };
+  }
+  _renderActionsTable(_actionsCache || []);
+}
+
+let _actionsCache = [];
+
+function _updateActSortArrows() {
+  ['name','entity','updated'].forEach(c => {
+    const th  = document.getElementById('act-th-' + c);
+    const arr = document.getElementById('act-arrow-' + c);
+    if (!th || !arr) return;
+    th.classList.remove('sort-asc','sort-desc');
+    arr.textContent = '';
+    if (_actionsSort.col === c) {
+      th.classList.add(_actionsSort.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+      arr.textContent = _actionsSort.dir === 'asc' ? ' ↑' : ' ↓';
+    }
+  });
+}
+
+function _renderActionsTable(actions) {
+  const tbody = document.getElementById('actions-list');
+  if (!tbody) return;
+  _updateActSortArrows();
+
+  if (!actions.length) {
+    tbody.innerHTML = `<tr><td colspan="3" style="padding:20px;color:var(--text-muted);text-align:center;">${t('ae.emptyList')}</td></tr>`;
+    return;
+  }
+
+  const sorted = [...actions].sort((a, b) => {
+    let va, vb;
+    if (_actionsSort.col === 'name')    { va = a.name;      vb = b.name; }
+    else if (_actionsSort.col === 'entity') { va = a.entityType; vb = b.entityType; }
+    else { va = a.updatedAt || ''; vb = b.updatedAt || ''; }
+    const cmp = va.localeCompare(vb);
+    return _actionsSort.dir === 'asc' ? cmp : -cmp;
+  });
+
+  tbody.innerHTML = sorted.map(a => {
+    const key = a.entityType + '::' + a.name;
+    const warn = _actionWarnings.has(key)
+      ? `<span title="语法/类型错误" style="color:#f5a623;margin-left:4px;">⚠</span>` : '';
+    const timeStr = a.updatedAt
+      ? new Date(a.updatedAt).toLocaleString(LANG === 'zh' ? 'zh-CN' : 'en', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' })
+      : '—';
+    const sigShort = (a.sig || '').replace('->', '→');
+    return `<tr onclick="editAction('${escHtml(a.entityType)}','${escHtml(a.name)}')">
+      <td>
+        <div style="font-weight:600;color:var(--text);">${escHtml(a.name)}${warn}</div>
+        <div style="font-size:10px;color:var(--text-muted);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${escHtml(sigShort)}</div>
+      </td>
+      <td style="color:var(--accent);font-size:11px;">${escHtml(a.entityType)}</td>
+      <td style="color:var(--text-muted);font-size:11px;white-space:nowrap;">${escHtml(timeStr)}</td>
+    </tr>`;
+  }).join('');
 }
 
 async function loadActionsList() {
   if (!worldSessionId) return;
   const data = await worldProxyTool('world_list_actions', { session_id: worldSessionId });
-  const list = document.getElementById('actions-list');
-  if (!list) return;
+  const tbody = document.getElementById('actions-list');
+  if (!tbody) return;
 
-  const raw = data.actions || [];
-  const actions = raw.map(a => {
+  _actionsCache = (data.actions || []).map(a => {
     const obj = typeof a === 'string' ? JSON.parse(a) : a;
     return {
       entityType: obj.entityType || 'global',
@@ -2111,45 +2173,10 @@ async function loadActionsList() {
       sig:        obj.signature || '',
       type:       obj.type || 'outline',
       scope:      obj.scope || 'entity',
+      updatedAt:  obj.updatedAt || '',
     };
   });
-
-  if (!actions.length) {
-    list.innerHTML = `<div style="padding:20px;color:var(--text-muted);font-size:12px;text-align:center">${t('ae.emptyList')}</div>`;
-    return;
-  }
-
-  const makeItem = (a) => {
-    const key = a.entityType + '::' + a.name;
-    const hasWarning = _actionWarnings.has(key);
-    const warnBadge = hasWarning
-      ? `<span title="代码存在语法/类型错误" style="color:#f5a623;font-size:11px;margin-left:4px">⚠</span>` : '';
-    const sigShort = a.sig ? a.sig.replace('->', '→') : '';
-    return `<div class="designer-item" onclick="editAction('${escHtml(a.entityType)}','${escHtml(a.name)}')">
-      <div class="designer-item-title">${escHtml(a.name)}${warnBadge}</div>
-      <div class="designer-item-sub">${escHtml(sigShort)}</div>
-    </div>`;
-  };
-
-  if (_actionsSort === 'name') {
-    // flat list sorted by name
-    const sorted = [...actions].sort((a, b) => a.name.localeCompare(b.name));
-    list.innerHTML = sorted.map(makeItem).join('');
-  } else {
-    // group by entity (ontology), entities sorted alphabetically
-    const groups = {};
-    actions.forEach(a => {
-      (groups[a.entityType] = groups[a.entityType] || []).push(a);
-    });
-    const html = Object.keys(groups).sort().map(entity => {
-      const items = groups[entity].sort((a, b) => a.name.localeCompare(b.name));
-      return `<div style="padding:6px 14px 2px;font-size:10px;font-weight:600;color:var(--accent);
-                text-transform:uppercase;letter-spacing:.5px;border-top:1px solid var(--border);">
-                ${escHtml(entity)}</div>` +
-             items.map(makeItem).join('');
-    }).join('');
-    list.innerHTML = html;
-  }
+  _renderActionsTable(_actionsCache);
 }
 
 /** decisions/actions tab 的 canvas patch 指令（来自 LLM 工具调用结果）。 */
