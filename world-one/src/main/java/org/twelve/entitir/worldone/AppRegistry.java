@@ -47,6 +47,10 @@ public class AppRegistry {
         .connectTimeout(Duration.ofSeconds(5))
         .build();
 
+    /** 运行期补加载缺失 app 的最小间隔，避免高频请求重复扫描。 */
+    private static final long RUNTIME_REFRESH_INTERVAL_MS = 5000L;
+    private volatile long lastRuntimeRefreshMs = 0L;
+
     /** appId → AppRegistration */
     private final Map<String, AppRegistration> registry = new ConcurrentHashMap<>();
 
@@ -173,7 +177,10 @@ public class AppRegistry {
     // ── public API ────────────────────────────────────────────────────────────
 
     /** 所有已注册的 app。 */
-    public Collection<AppRegistration> apps() { return registry.values(); }
+    public Collection<AppRegistration> apps() {
+        refreshMissingAppsIfNeeded();
+        return registry.values();
+    }
 
     /**
      * 聚合所有注册 AIPP 应用贡献的 memory_hints（Layer 1b）。
@@ -185,6 +192,7 @@ public class AppRegistry {
      * <p><b>注意：这些 hints 只用于 Memory Agent 提示词，不进入主 Agent context。</b>
      */
     public List<String> allMemoryHints() {
+        refreshMissingAppsIfNeeded();
         List<String> hints = new ArrayList<>();
         for (AppRegistration app : registry.values()) {
             for (Map<String, Object> skill : app.skills()) {
@@ -200,6 +208,7 @@ public class AppRegistry {
     /** 聚合所有 app 的 skills，返回 OpenAI function-call 格式列表。
      *  background=true 和 auto_pre_turn=true 的 skill 由 host 自动调用，不暴露给 LLM。*/
     public List<Map<String, Object>> allSkillsAsTools() {
+        refreshMissingAppsIfNeeded();
         List<Map<String, Object>> tools = new ArrayList<>();
         for (AppRegistration app : registry.values()) {
             for (Map<String, Object> skill : app.skills()) {
@@ -218,6 +227,7 @@ public class AppRegistry {
      * 返回 [app, skill] pair，便于获取 URL。
      */
     public List<Map.Entry<AppRegistration, Map<String, Object>>> getAutoPreTurnSkills() {
+        refreshMissingAppsIfNeeded();
         List<Map.Entry<AppRegistration, Map<String, Object>>> result = new ArrayList<>();
         for (AppRegistration app : registry.values()) {
             for (Map<String, Object> skill : app.skills()) {
@@ -234,6 +244,7 @@ public class AppRegistry {
      * 用于 host 自动调用（不经 LLM）。
      */
     public Map<String, Object> findBackgroundSkill(String skillName) {
+        refreshMissingAppsIfNeeded();
         for (AppRegistration app : registry.values()) {
             for (Map<String, Object> skill : app.skills()) {
                 if (skillName.equals(skill.get("name")) && Boolean.TRUE.equals(skill.get("background"))) {
@@ -246,6 +257,7 @@ public class AppRegistry {
 
     /** 聚合所有 app 的 system_prompt_contribution，拼接成一个完整的 system prompt。 */
     public String aggregatedSystemPrompt() {
+        refreshMissingAppsIfNeeded();
         StringBuilder sb = new StringBuilder();
         sb.append("""
             你是 World One，一个通用 AI 智能体。所有回复使用中文。
@@ -763,6 +775,7 @@ public class AppRegistry {
      * 若某 app 没有 /api/app 端点，则补全 app_id 和 app_name（来自 AppRegistration）作为最小 manifest。
      */
     public List<Map<String, Object>> buildAppsManifests() {
+        refreshMissingAppsIfNeeded();
         List<Map<String, Object>> result = new ArrayList<>();
         for (AppRegistration reg : registry.values()) {
             Map<String, Object> m = appManifestIndex.getOrDefault(reg.appId(), null);
@@ -792,6 +805,7 @@ public class AppRegistry {
 
     /** 查找 appId 对应的 main widget type；无 is_main=true widget 时返回 null。 */
     public String getAppMainWidgetType(String appId) {
+        refreshMissingAppsIfNeeded();
         return appManifestIndex.containsKey(appId) || registry.containsKey(appId)
                 ? appMainWidgetIndex.get(appId)
                 : null;
@@ -808,6 +822,7 @@ public class AppRegistry {
      * 若无对应 skill 返回 null。
      */
     public String findOutputSkillForWidget(String widgetType) {
+        refreshMissingAppsIfNeeded();
         if (widgetType == null) return null;
         for (Map.Entry<String, String> e : skillOutputWidgetIndex.entrySet()) {
             if (widgetType.equals(e.getValue())) return e.getKey();
@@ -853,5 +868,38 @@ public class AppRegistry {
         if (resp.statusCode() != 200)
             throw new RuntimeException("HTTP " + resp.statusCode() + " from " + url);
         return resp.body();
+    }
+
+    /**
+     * 运行期补加载缺失 app。
+     *
+     * <p>场景：外部 app（如 memory-one）在 world-one 启动时尚未就绪，启动阶段加载失败；
+     * 之后当 app 端口可用，本方法会在常规请求链路上补注册，避免必须重启 world-one。
+     */
+    private void refreshMissingAppsIfNeeded() {
+        long now = System.currentTimeMillis();
+        if (now - lastRuntimeRefreshMs < RUNTIME_REFRESH_INTERVAL_MS) return;
+        synchronized (this) {
+            now = System.currentTimeMillis();
+            if (now - lastRuntimeRefreshMs < RUNTIME_REFRESH_INTERVAL_MS) return;
+            lastRuntimeRefreshMs = now;
+
+            if (!Files.exists(APPS_ROOT)) return;
+            File[] appDirs = APPS_ROOT.toFile().listFiles(File::isDirectory);
+            if (appDirs == null || appDirs.length == 0) return;
+
+            for (File appDir : appDirs) {
+                String dirName = appDir.getName();
+                if (registry.containsKey(dirName)) continue;
+                try {
+                    loadApp(appDir.toPath());
+                    if (registry.containsKey(dirName)) {
+                        log.info("Runtime app refresh loaded: {}", dirName);
+                    }
+                } catch (Exception e) {
+                    log.debug("Runtime app refresh skipped {}: {}", dirName, e.getMessage());
+                }
+            }
+        }
     }
 }

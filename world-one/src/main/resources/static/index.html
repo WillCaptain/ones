@@ -2205,6 +2205,9 @@ const DE_INPUT_STYLE = 'width:100%;box-sizing:border-box;background:var(--surfac
 const DE_ROW_STYLE   = 'display:flex;gap:6px;align-items:flex-start;padding:6px 8px;background:var(--surface3);border:1px solid var(--border);border-radius:6px;';
 const DE_DEL_STYLE   = 'flex-shrink:0;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;margin-top:1px;';
 
+/** WeakMap: trigger row element → Monaco editor handle (for direct value reads in deCollect). */
+const _deTriggerEditorMap = new WeakMap();
+
 /** Current entity type from Target Ontology selector. */
 function _deTriggerEntityType() {
   return (document.getElementById('de-target-ontology')?.value || '').trim();
@@ -2413,9 +2416,10 @@ function deAddRow(section, data) {
     row.appendChild(condTopBar); row.appendChild(monacoContainer);
     row.appendChild(hiddenExpr);
 
-    // Create Monaco editor after DOM is attached
+    // Create Monaco editor after DOM is attached; store handle in WeakMap for direct reads
     setTimeout(() => {
       _createTriggerConditionEditor(monacoContainer, hiddenExpr, condIndicator, data.expression || '')
+        .then(handle => { _deTriggerEditorMap.set(row, handle); })
         .catch(err => {
           // Fallback: show textarea if Monaco fails
           monacoContainer.style.display = 'none';
@@ -2557,7 +2561,16 @@ function deCollect() {
     });
   }
 
-  const triggers   = collectRows('de-triggers',   ['expression','description']);
+  // For triggers: read expression directly from Monaco editor (if loaded) to avoid hidden-input sync gaps
+  const triggers = [...document.getElementById('de-triggers').children].map(row => {
+    const descEl = row.querySelector('[data-field="description"]');
+    const description = descEl ? descEl.value.trim() : '';
+    // Prefer live editor value; fall back to hidden input
+    const handle = _deTriggerEditorMap.get(row);
+    const exprEl = row.querySelector('[data-field="expression"]');
+    const expression = handle ? handle.editor.getValue() : (exprEl ? exprEl.value : '');
+    return { expression, description };
+  });
   const actionDefs = collectRows('de-actiondefs', ['id','action','semantics','hasSideEffect','requiresApproval']);
   const rules      = collectRows('de-rules',      ['id','priority','filterExpression','actionId','argument','rationale']);
   const hints      = collectRows('de-hints',       ['expression','description']);
