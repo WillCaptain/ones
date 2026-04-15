@@ -1455,20 +1455,21 @@ window.addEventListener('DOMContentLoaded', () => {
               <div style="display:flex;flex-direction:column;gap:8px;">
                 <div>
                   <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px;">目标 Goal</label>
-                  <input id="de-goal" type="text" placeholder="描述决策目标" style="width:100%;box-sizing:border-box;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
+                  <input id="de-goal" type="text" placeholder="描述决策目标，如：检测到故障后启动恢复流程" style="width:100%;box-sizing:border-box;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
                 </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-                  <div>
-                    <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px;">目标本体 Target Ontology</label>
-                    <input id="de-target-ontology" type="text" placeholder="TransmissionLine" list="de-entity-list" style="width:100%;box-sizing:border-box;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
-                    <datalist id="de-entity-list"></datalist>
-                  </div>
-                  <div>
-                    <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px;">上下文 Context</label>
-                    <input id="de-context" type="text" placeholder="fault-recovery" style="width:100%;box-sizing:border-box;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
-                  </div>
+                <div>
+                  <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:3px;">上下文 Context <span style="font-weight:400;opacity:.7;">— 此决策适用的业务场景，用于过滤和匹配触发时机</span></label>
+                  <input id="de-context" type="text" placeholder="如 fault-recovery、onboarding、compliance-check" style="width:100%;box-sizing:border-box;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
                 </div>
               </div>
+            </div>
+
+            <!-- Target Ontology -->
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;">
+              <div style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">目标本体 Target Ontology</div>
+              <select id="de-target-ontology" style="width:100%;box-sizing:border-box;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
+                <option value="">选择目标实体…</option>
+              </select>
             </div>
 
             <!-- Triggers -->
@@ -2297,17 +2298,20 @@ function openDecisionEditor(template) {
 
   document.getElementById('de-title').textContent = template ? `编辑决策：${template.id}` : '新建决策模板';
   document.getElementById('de-id').value              = template?.id || '';
-  document.getElementById('de-goal').value            = template?.intent?.goal || '';
-  document.getElementById('de-target-ontology').value = template?.intent?.targetOntology || '';
-  document.getElementById('de-context').value         = template?.intent?.context || '';
+  document.getElementById('de-goal').value    = template?.intent?.goal || '';
+  document.getElementById('de-context').value = template?.intent?.context || '';
 
-  // Populate entity datalist
-  const dl = document.getElementById('de-entity-list');
-  if (dl) {
-    dl.innerHTML = (graphState.nodes || [])
-      .filter(n => n.type === 'entity')
-      .map(n => `<option value="${escHtml(n.id)}">`)
-      .join('');
+  // Populate Target Ontology <select> from current world entities
+  const targetOntologySel = document.getElementById('de-target-ontology');
+  const currentOntology = template?.intent?.targetOntology || '';
+  const entityNodes = (graphState.nodes || []).filter(n => n.type === 'entity').map(n => n.id).sort();
+  targetOntologySel.innerHTML = '<option value="">选择目标实体…</option>' +
+    entityNodes.map(id =>
+      `<option value="${escHtml(id)}"${id === currentOntology ? ' selected' : ''}>${escHtml(id)}</option>`
+    ).join('');
+  if (currentOntology && !entityNodes.includes(currentOntology)) {
+    // preserve unknown value (e.g. loaded from older data)
+    targetOntologySel.innerHTML += `<option value="${escHtml(currentOntology)}" selected>${escHtml(currentOntology)}</option>`;
   }
 
   // Clear sections
