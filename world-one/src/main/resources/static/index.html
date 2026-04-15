@@ -1375,28 +1375,35 @@ window.addEventListener('DOMContentLoaded', () => {
             <button onclick="closeActionEditor()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px;">×</button>
           </div>
           <div style="padding:16px 18px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:12px;">
+            <!-- Row 1: Entity Type + Action Name -->
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
               <div>
                 <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;">Entity Type</label>
-                <input id="ae-entity-type" type="text" placeholder="e.g. Employee" oninput="onEntityTypeInput(this.value)" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
+                <select id="ae-entity-type" onchange="onEntityTypeInput(this.value)" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
+                  <option value="">选择 Entity...</option>
+                </select>
               </div>
               <div>
                 <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;">Action Name</label>
                 <input id="ae-action-name" type="text" placeholder="e.g. initiate_salary" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
               </div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-              <div>
-                <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;">类型</label>
-                <select id="ae-type" onchange="onActionTypeChange()" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:13px;">
-                  <option value="outline">Outline 代码</option>
-                  <option value="webhook">Webhook URL</option>
-                </select>
+            <!-- Row 2: Scope checkboxes + Signature -->
+            <div style="display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;">
+              <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 12px;display:flex;align-items:center;gap:14px;white-space:nowrap;">
+                <span style="font-size:11px;color:var(--text-dim);">作用范围</span>
+                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:var(--text);">
+                  <input type="checkbox" id="ae-scope-entity" checked onchange="onScopeChange()"> Entity
+                </label>
+                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:var(--text);">
+                  <input type="checkbox" id="ae-scope-collection" onchange="onScopeChange()"> Collection
+                </label>
               </div>
-              <div>
-                <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;">Signature</label>
-                <div id="ae-signature-display" style="background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text-dim);font-size:12px;font-family:'JetBrains Mono','Fira Code',monospace;cursor:default;user-select:none;">Unit → Unit</div>
+              <div style="min-width:0;">
+                <div id="ae-signature-display" style="background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-dim);font-size:11px;font-family:'JetBrains Mono','Fira Code',monospace;cursor:default;user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Unit → Unit</div>
                 <input id="ae-signature" type="hidden" value="Unit -> Unit">
+                <!-- type is always 'outline'; hidden for internal use -->
+                <input id="ae-type" type="hidden" value="outline">
               </div>
             </div>
             <div>
@@ -2370,6 +2377,48 @@ function onEntityTypeInput(value) {
   applyActionEntityType(value, '');
 }
 
+/** Populate the entity-type <select> with entities from graphState. */
+function _populateEntityTypeDropdown(currentValue) {
+  const sel = document.getElementById('ae-entity-type');
+  sel.innerHTML = '<option value="">选择 Entity...</option>';
+  const entities = (graphState.nodes || []).filter(n => n.type === 'entity').map(n => n.id).sort();
+  entities.forEach(id => {
+    const opt = document.createElement('option');
+    opt.value = id; opt.textContent = id;
+    if (id === currentValue) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  const globalOpt = document.createElement('option');
+  globalOpt.value = 'global'; globalOpt.textContent = 'global (无实体)';
+  if ('global' === currentValue) globalOpt.selected = true;
+  sel.appendChild(globalOpt);
+}
+
+/** Ensure at least one scope checkbox is always checked. */
+function onScopeChange() {
+  const entity     = document.getElementById('ae-scope-entity');
+  const collection = document.getElementById('ae-scope-collection');
+  if (!entity.checked && !collection.checked) {
+    // revert: at least one must be checked
+    entity.checked = true;
+  }
+}
+
+/** Read current scope string from checkboxes: 'entity' | 'collection' | 'both' */
+function _readScope() {
+  const e = document.getElementById('ae-scope-entity').checked;
+  const c = document.getElementById('ae-scope-collection').checked;
+  if (e && c) return 'both';
+  if (c) return 'collection';
+  return 'entity';
+}
+
+/** Apply scope to checkboxes from a stored scope string. */
+function _applyScope(scope) {
+  document.getElementById('ae-scope-entity').checked     = (scope !== 'collection');
+  document.getElementById('ae-scope-collection').checked = (scope === 'collection' || scope === 'both');
+}
+
 /** Strip "(param) -> " lambda prefix from stored code, leaving only the body. */
 function stripLambdaPrefix(code) {
   return (code || '').replace(/^\s*\([^)]*\)\s*->\s*/, '').trim();
@@ -2470,6 +2519,9 @@ function ensureMonacoEditor(initialValue, entityType) {
   }).then(handle => {
     _monacoEditor = handle.editor;
     _scheduleDiagnostics = handle.scheduleDiagnostics;
+    // Real-time signature inference: every content change triggers a debounced infer call.
+    // Diagnostics are already scheduled by outline-lang.js; we add inference separately.
+    _monacoEditor.onDidChangeModelContent(() => _scheduleInferActionType());
   });
 }
 
@@ -2576,9 +2628,10 @@ function addAction() {
   _aeMode = 'new';
   _aeOrigEntityType = null; _aeOrigActionName = null;
   document.getElementById('ae-title').textContent = '注册新 Action';
-  document.getElementById('ae-entity-type').value = '';
+  _populateEntityTypeDropdown('');
   document.getElementById('ae-action-name').value = '';
   document.getElementById('ae-type').value = 'outline';
+  _applyScope('entity');
   applyActionEntityType('', '');
   document.getElementById('ae-description').value = '';
   document.getElementById('ae-url').value = '';
@@ -2603,9 +2656,22 @@ async function editAction(entityType, actionName) {
   const actions = data?.actions || [];
   const found = actions.find(a => a.entityType === entityType && a.name === actionName);
   const actualEntityType = found?.entityType || entityType;
-  document.getElementById('ae-entity-type').value = actualEntityType;
+  _populateEntityTypeDropdown(actualEntityType);
   document.getElementById('ae-action-name').value  = found?.name       || actionName;
-  document.getElementById('ae-type').value          = found?.type       || 'outline';
+  document.getElementById('ae-type').value          = 'outline';
+  // Restore scope: from spec or derive from entity JSON key prefix
+  let scope = found?.scope || 'entity';
+  if (!found?.scope) {
+    const node = (graphState.nodes || []).find(n => n.id === actualEntityType);
+    if (node?.definition) {
+      try {
+        const d = JSON.parse(node.definition);
+        if ('*' + actionName in d) scope = 'both';
+        else if ('~' + actionName in d) scope = 'collection';
+      } catch {}
+    }
+  }
+  _applyScope(scope);
   applyActionEntityType(actualEntityType, found?.signature || '');
   document.getElementById('ae-description').value   = found?.description|| '';
   document.getElementById('ae-url').value           = found?.url        || '';
@@ -2756,6 +2822,14 @@ async function saveAction() {
   const entityType  = document.getElementById('ae-entity-type').value.trim();
   const actionName  = document.getElementById('ae-action-name').value.trim();
   const type        = document.getElementById('ae-type').value;
+
+  // Flush any pending debounced inference and await the freshest result before
+  // reading the signature — this guarantees we save the last-successful inferred type.
+  if (type === 'outline') {
+    if (_inferTypeTimer) { clearTimeout(_inferTypeTimer); _inferTypeTimer = null; }
+    await _doInferActionType();
+  }
+
   const signature   = document.getElementById('ae-signature').value.trim() || 'Unit -> Unit';
   const description = document.getElementById('ae-description').value.trim();
   const bodyCode    = (_monacoEditor && document.getElementById('ae-code-editor').offsetParent !== null)
@@ -2763,29 +2837,31 @@ async function saveAction() {
                       : document.getElementById('ae-code').value.trim();
   const url         = document.getElementById('ae-url').value.trim();
 
+  const scope = _readScope();
+
   if (!entityType || !actionName) {
     showActionError('Entity Type 和 Action Name 不能为空');
     return;
   }
-  if (type === 'outline' && !bodyCode) {
+  if (!bodyCode) {
     showActionError('Outline 代码不能为空');
     return;
   }
-  if (type === 'webhook' && !url) {
-    showActionError('Webhook URL 不能为空');
-    return;
-  }
 
-  // Reconstruct full lambda: prepend "(param) -> " to body-only code
+  // Reconstruct full lambda: prepend "(param) -> " to body-only code.
+  // If the body ends with ';', wrap in a block so the lambda returns Unit
+  // (matching Outline block semantics: { expr; } → Unit).
   let fullCode = bodyCode;
-  if (type === 'outline' && entityType) {
+  if (entityType && entityType !== 'global') {
     const paramName = entityType.charAt(0).toLowerCase() + entityType.slice(1);
-    fullCode = `(${paramName}) -> ${bodyCode}`;
+    const trimmedBody = bodyCode.trim();
+    fullCode = trimmedBody.endsWith(';')
+      ? `(${paramName}) -> { ${trimmedBody} }`
+      : `(${paramName}) -> ${trimmedBody}`;
   }
 
-  const spec = JSON.stringify({ entityType, name: actionName, type, signature, description,
-                                code: type === 'outline' ? fullCode : undefined,
-                                url: type === 'webhook' ? url : undefined });
+  const spec = JSON.stringify({ entityType, name: actionName, type, scope, signature, description,
+                                code: fullCode });
   const saveBtn = document.getElementById('ae-save-btn');
   saveBtn.disabled = true; saveBtn.textContent = '保存中...';
 
@@ -2820,7 +2896,7 @@ async function saveAction() {
     closeActionEditor();
     loadActionsList();
     // 自动把 actionName: signature 写入 entity definition，并刷新 schema
-    await _syncActionToEntityDefinition(entityType, actionName, signature);
+    await _syncActionToEntityDefinition(entityType, actionName, signature, scope);
   } catch(e) {
     showActionError('保存失败：' + e.message);
   } finally {
@@ -2833,7 +2909,7 @@ async function saveAction() {
  * 签名格式：entity JSON 约定以 "paramType -> returnType" 存储，
  * 其中 entity 实例作为隐式接收者（paramType 通常为 "Unit"）。
  */
-async function _syncActionToEntityDefinition(entityType, actionName, signature) {
+async function _syncActionToEntityDefinition(entityType, actionName, signature, scope) {
   if (!entityType || !actionName || entityType === 'global' || !worldSessionId) return;
   const node = (graphState.nodes || []).find(n => n.id === entityType);
   if (!node || !node.definition) return;
@@ -2848,7 +2924,14 @@ async function _syncActionToEntityDefinition(entityType, actionName, signature) 
     if (jsonSig.startsWith(entityType + ' -> ')) {
       jsonSig = 'Unit -> ' + jsonSig.slice(entityType.length + 4);
     }
-    d[actionName] = jsonSig;
+    // Remove all prefix variants of the key to avoid duplicates
+    delete d[actionName];
+    delete d['~' + actionName];
+    delete d['*' + actionName];
+    // Determine key prefix from scope: both → '*', collection → '~', entity → (none)
+    const s = scope || 'entity';
+    const keyPrefix = s === 'both' ? '*' : s === 'collection' ? '~' : '';
+    d[keyPrefix + actionName] = jsonSig;
 
     const newDef = JSON.stringify(d);
     node.definition = newDef;
