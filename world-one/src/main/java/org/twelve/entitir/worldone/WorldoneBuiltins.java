@@ -41,46 +41,55 @@ public class WorldoneBuiltins {
     }
 
     /**
-     * 注入 LLM 的系统提示：明确"AIPP 应用/插件"与"本体世界"的语义边界，
-     * 防止 LLM 将"列出应用"误路由到 world_list。
+     * World One 宿主层的 system prompt —— 只声明 **自己提供** 的能力
+     * （即 {@code app_list_view}），绝不提及任何由外部 app 注册进来的 skill。
+     *
+     * <p>这样 world-entitir / memory-one 等 app 卸载时，本 prompt 也不会遗留
+     * 对不存在 skill 的"规劝"。跨域互斥规则由各 app 的 {@code prompt_contributions}
+     * （AAP-Pre 层）自行贡献（见 {@code SkillsController.AAP_PRE_SYSTEM_PROMPT}）。
+     */
+    /**
+     * 宿主内置 app 自身的 systemPromptContribution 留空：
+     * {@code app_list_view} 的路由规则完全由 {@code AppRegistry.hostSystemPrompt()}
+     * 里的 "宿主域：应用" 段落统一管理（那段会动态注入 app 清单），避免重复。
      */
     private static String systemPrompt() {
-        return """
-            ## 工具路由规范（严格执行，禁止违反）
-
-            | 用户说的词 | 必须调用 | 禁止调用 |
-            |---|---|---|
-            | 应用 / app / 应用列表 | app_list_view | world_list |
-            | 世界 / 本体世界 / 世界列表 | world_list | app_list_view |
-
-            **示例（必须照此执行）：**
-            - "列出所有应用" → app_list_view
-            - "有哪些应用" → app_list_view
-            - "列出所有世界" → world_list
-            - "有哪些世界" → world_list
-
-            ⚠️ 绝对禁止：用户说"应用"时调用 world_list，这是错误路由。
-            ⚠️ 绝对禁止：用户说"世界"时调用 app_list_view，这是错误路由。
-            """;
+        return "";
     }
 
     private static Map<String, Object> appListViewSkill() {
-        return Map.of(
-            "name",        "app_list_view",
-            "description", "列出注册到 World One 的所有 AIPP 应用（world-entitir、memory-one 等功能模块）。" +
-                           "【精确触发词】：'应用'、'列出应用'、'有哪些应用'、'应用列表'。" +
-                           "【绝对禁止】：用户说'世界'时不得调用此工具，应改用 world_list。" +
-                           "可选 query 参数按名称/描述过滤，留空则列出全部。",
-            "parameters",  Map.of(
-                "type",       "object",
-                "properties", Map.of(
-                    "query", Map.of(
-                        "type",        "string",
-                        "description", "关键词过滤（按应用名称或描述），留空则列出全部应用"
-                    )
-                ),
-                "required",   List.of()
-            )
-        );
+        // LinkedHashMap（而非 Map.of）以便携带 visibility + scope 元字段，且按协议顺序。
+        java.util.LinkedHashMap<String, Object> t = new java.util.LinkedHashMap<>();
+        t.put("name", "app_list_view");
+        t.put("description",
+            "打开 **AIPP 应用（app / 插件 / 功能模块）列表面板**，展示已注册应用。" +
+            "命中条件和 ids 语义过滤的完整规则见 system prompt 中的 " +
+            "\"宿主域：应用\" 段落（含当前应用清单）。" +
+            "简要：用户明说 '应用/app/插件/功能模块' 才可调用；若带主题词" +
+            "（如'记忆/memory/本体/HR'），在注入清单里做语义匹配后把真实 app_id 作为 `ids` 数组传入；" +
+            "用户说'世界/本体/ontology'时**绝不调用本工具**。");
+        t.put("parameters", Map.of(
+            "type",       "object",
+            "properties", Map.of(
+                "ids", Map.of(
+                    "type",        "array",
+                    "items",       Map.of("type", "string"),
+                    "description", "要展示的 app_id 列表，**由 LLM 基于 host 注入的应用清单语义选出**。" +
+                                   "示例：用户说'记忆相关应用'且清单里有 `memory-one — 记忆管理`，则传 " +
+                                   "`ids=[\"memory-one\"]`。用户说'列出所有应用'或无相关匹配时省略本参数。" +
+                                   "**必须传清单里真实存在的 app_id，不要编造**。"
+                )
+            ),
+            "required",   List.of()
+        ));
+        // Phase 6：宿主内置 tool 补齐 Tool 模型元字段，与 AIPP app 的 /api/tools 对齐。
+        t.put("visibility", List.of("llm", "ui"));
+        t.put("scope", Map.of(
+            "level",        "universal",
+            "owner_app",    "worldone-system",
+            "visible_when", "always"
+        ));
+        return t;
     }
+
 }
