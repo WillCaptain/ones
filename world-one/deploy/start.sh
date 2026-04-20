@@ -100,8 +100,7 @@ register_app() {
   local app_id=$1 base_url=$2 port=$3
   # 等待 app 就绪
   for i in $(seq 1 10); do
-    if curl -sf "${base_url}/api/tools" > /dev/null 2>&1 \
-       || curl -sf "${base_url}/api/skills" > /dev/null 2>&1; then
+    if curl -sf "${base_url}/api/tools" > /dev/null 2>&1; then
       break
     fi
     sleep 1

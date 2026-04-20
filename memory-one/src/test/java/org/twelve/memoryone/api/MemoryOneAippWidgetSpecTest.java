@@ -57,13 +57,19 @@ class MemoryOneAippWidgetSpecTest {
     // ══════════════════════════════════════════════════════════════════════════
 
     @Test
-    @DisplayName("[skills] /api/skills 顶层结构合规（app / version / skills[]）")
-    void skills_api_top_level_structure_complies() {
-        appSpec.assertValidSkillsApiStructure(skillsNode);
+    @DisplayName("[tools] /api/tools 顶层结构合规（app / version / tools[]；内存 fixture 用 skills 字段承载）")
+    void tools_api_top_level_structure_complies() {
+        // Phase 4 之后 fixture 承载的是原子 Tool 清单（/api/tools 的内容）；
+        // 为复用 AippAppSpec.findSkill 保留 skills 字段名。
+        assertThat(skillsNode.has("app")).isTrue();
+        assertThat(skillsNode.has("version")).isTrue();
+        assertThat(skillsNode.has("skills")).isTrue();
+        assertThat(skillsNode.get("skills").isArray()).isTrue();
+        assertThat(skillsNode.get("skills").size()).isGreaterThan(0);
     }
 
     @Test
-    @DisplayName("[skills] 每个 Skill 三层结构合规（name / description / parameters / canvas / prompt / tools）")
+    @DisplayName("[tools] 每个 Tool 三层结构合规（name / description / parameters / canvas / prompt / tools）")
     void each_skill_full_structure_complies() {
         for (JsonNode skill : skillsNode.get("skills")) {
             appSpec.assertValidSkillStructure(skill);

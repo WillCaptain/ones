@@ -1242,26 +1242,17 @@ public class AppRegistry {
     }
 
     /**
-     * Phase 2：优先从 {@code /api/tools}（AIPP 新端点，payload 带 visibility/scope 元数据）
-     * 读取；若 app 尚未升级到新端点，回退到 {@code /api/skills}。
-     *
-     * <p>返回的 JsonNode 根结构始终兼容老字段（{@code system_prompt} /
-     * {@code prompt_contributions}），tool 列表位于 {@code tools} 或 {@code skills}
-     * 字段之一，由 {@link #fetchSkills(String, JsonNode)} 统一抽取。
+     * Phase 4：原子 Tool 清单唯一权威端点为 {@code /api/tools}。
+     * {@code /api/skills} 自 Phase 4 起专用于 Skill Playbook 索引，不再承载 Tool 定义。
      */
     private JsonNode fetchSkillsRoot(String baseUrl) throws Exception {
-        try {
-            return JSON.readTree(get(baseUrl + "/api/tools"));
-        } catch (Exception newEndpointMiss) {
-            return JSON.readTree(get(baseUrl + "/api/skills"));
-        }
+        return JSON.readTree(get(baseUrl + "/api/tools"));
     }
 
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> fetchSkills(String appId, JsonNode root) throws Exception {
         List<Map<String, Object>> result = new ArrayList<>();
-        // Phase 2：优先读 "tools"（/api/tools 的字段名），回退到 "skills"（旧端点字段名）。
-        JsonNode list = root.has("tools") ? root.path("tools") : root.path("skills");
+        JsonNode list = root.path("tools");
         for (JsonNode skill : list) {
             Map<String, Object> s = JSON.treeToValue(skill, Map.class);
             s.put("app_id", appId);
@@ -1382,7 +1373,7 @@ public class AppRegistry {
         }
     }
 
-    /** 返回 app 当前在线状态（按固定间隔探测 /api/tools，回退 /api/skills）。 */
+    /** 返回 app 当前在线状态（按固定间隔探测 /api/tools）。 */
     private boolean isAppOnline(AppRegistration reg) {
         String appId = reg.appId();
         long now = System.currentTimeMillis();
@@ -1392,11 +1383,7 @@ public class AppRegistry {
         }
         boolean online;
         try {
-            try {
-                get(reg.baseUrl() + "/api/tools");
-            } catch (Exception newMiss) {
-                get(reg.baseUrl() + "/api/skills");
-            }
+            get(reg.baseUrl() + "/api/tools");
             online = true;
             appLoadErrorIndex.remove(appId);
         } catch (Exception e) {

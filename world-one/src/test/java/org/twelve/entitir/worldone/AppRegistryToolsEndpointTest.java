@@ -65,17 +65,15 @@ class AppRegistryToolsEndpointTest {
     }
 
     @Test
-    void fetchSkills_fallsBackToLegacySkillsField() throws Exception {
+    void fetchSkills_ignoresLegacySkillsField_afterPhase4() throws Exception {
+        // Phase 4 之后 /api/skills 专用于 Skill Playbook 索引；若响应里不带
+        // tools 字段，fetchSkills 视为空列表（不再回退读取 skills）。
         String body = """
             {
               "app": "world",
               "version": "1.0",
               "skills": [
-                {
-                  "name": "world_list",
-                  "description": "列出世界",
-                  "parameters": {"type":"object","properties":{},"required":[]}
-                }
+                {"name": "from_skills"}
               ]
             }
             """;
@@ -83,10 +81,7 @@ class AppRegistryToolsEndpointTest {
 
         List<Map<String, Object>> parsed = invokeFetchSkills("world", root);
 
-        assertThat(parsed).hasSize(1);
-        assertThat(parsed.get(0).get("name")).isEqualTo("world_list");
-        assertThat(parsed.get(0).get("app_id")).isEqualTo("world");
-        assertThat(parsed.get(0).get("visibility")).isNull();  // 旧 payload 无 visibility 字段
+        assertThat(parsed).isEmpty();
     }
 
     @Test

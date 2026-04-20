@@ -28,14 +28,36 @@ import java.util.*;
 @RequestMapping("/api")
 public class MemorySkillsController {
 
+    /**
+     * GET /api/skills — Skill Playbook 索引（Phase 4：语义翻转后）。
+     * 原子工具清单已整体迁移到 {@code GET /api/tools}。memory-one 暂未定义
+     * 任何 Skill playbook，{@code skills} 返回空数组。
+     */
     @GetMapping("/skills")
     public Map<String, Object> skills() {
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("app",           "memory-one");
-        result.put("version",       "1.0");
-        result.put("system_prompt", MEMORY_INTENT_PROMPT);
-        result.put("skills",        buildSkillList());
+        result.put("app",     "memory-one");
+        result.put("version", "1.0");
+        result.put("skills",  buildSkillPlaybookIndex());
         return result;
+    }
+
+    private static List<Map<String, Object>> buildSkillPlaybookIndex() {
+        return List.of();
+    }
+
+    /**
+     * GET /api/skills/{id}/playbook — 返回单个 Skill 的 SKILL.md 正文。
+     * 当前 memory-one 未定义任何 playbook，所有 id 都返回 HTTP 404。
+     */
+    @GetMapping(value = "/skills/{id}/playbook",
+                produces = "text/markdown;charset=UTF-8")
+    public org.springframework.http.ResponseEntity<String> skillPlaybook(
+            @org.springframework.web.bind.annotation.PathVariable("id") String id) {
+        return org.springframework.http.ResponseEntity
+                .status(org.springframework.http.HttpStatus.NOT_FOUND)
+                .header("Content-Type", "text/plain;charset=UTF-8")
+                .body("Skill playbook not found: " + id);
     }
 
     /**
