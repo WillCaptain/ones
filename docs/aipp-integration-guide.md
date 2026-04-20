@@ -10,7 +10,8 @@
 ```
 你的应用（AIPP App）              World One（AIPP Agent）
 ─────────────────────────        ─────────────────────────
-GET  /api/skills        ←─────── 启动时拉取，构建 LLM 工具列表
+GET  /api/tools         ←─────── 启动时拉取，构建 LLM 工具列表（权威 Tool 清单）
+GET  /api/skills        ←─────── 启动时拉取，Skill Playbook 索引（可为空）
 GET  /api/widgets       ←─────── 启动时拉取，构建 Widget 注册表
 POST /api/tools/{name}  ←─────── LLM 决策后路由调用
                                            ↕
@@ -21,31 +22,33 @@ POST /api/tools/{name}  ←─────── LLM 决策后路由调用
 
 你需要做的事情只有 **3 步**：
 
-1. 实现 `GET /api/skills` — 告诉 AI 你能做什么
+1. 实现 `GET /api/tools` — 告诉 AI / UI / Host 你能做什么（带 `visibility`+`scope`）
 2. 实现 `GET /api/widgets` — 告诉 AI 如何显示结果
 3. 实现 `POST /api/tools/{name}` — 真正执行工具
+
+（可选）当你有多步事务型能力时，再实现 `GET /api/skills` + `GET /api/skills/{id}/playbook` 发布 Skill Playbook。
 
 然后通过 **Registry** 注册，World One 启动后自动发现你的应用。
 
 ---
 
-## 第一步：实现 `GET /api/skills`
+## 第一步：实现 `GET /api/tools`
 
-这是 AI Agent 的"说明书"。返回你的应用能做什么。
+这是 AI Agent / UI / Host 的"说明书"。返回你的应用能做什么；每个 Tool 条目带 `visibility`（`llm` / `ui` / `host`）和 `scope`（`universal` / `app` / `widget` / `view`）。
 
 ### 最小合规示例（Spring Boot）
 
 ```java
-@GetMapping("/api/skills")
-public Map<String, Object> skills() {
+@GetMapping("/api/tools")
+public Map<String, Object> tools() {
     return Map.of(
         "app",     "my-app",
         "version", "1.0",
-        "skills",  List.of(buildMySkill())
+        "tools",   List.of(buildMyTool())
     );
 }
 
-private Map<String, Object> buildMySkill() {
+private Map<String, Object> buildMyTool() {
     Map<String, Object> skill = new LinkedHashMap<>();
 
     // ── Layer 1：OpenAI 兼容（必须）─────────────────────────
@@ -128,17 +131,11 @@ private Map<String, Object> buildMyWidget() {
     w.put("context_prompt",  "当前在数据搜索 Canvas 中。用 my_search_tool 搜索，my_delete_tool 删除。");
     w.put("welcome_message", "数据面板已打开，你可以直接告诉我搜索或操作什么。");
 
-    // Widget UI 可直接调用的工具（不经 LLM）
-    w.put("internal_tools", List.of("my_search_tool", "my_delete_tool", "my_update_tool"));
-
-    // Canvas 模式下 LLM 可调用的工具集
-    w.put("canvas_skill", Map.of(
-        "prompt", "在 canvas 模式中帮用户搜索、修改或删除数据。每次操作后用 1 句话确认结果。",
-        "tools",  List.of("my_search_tool", "my_update_tool", "my_delete_tool")
-    ));
-
     return w;
 }
+```
+
+> **不再在 widget manifest 里声明 `internal_tools` 和 `canvas_skill`**：自 Phase 3 起，widget 级 tool 的 `visibility`（`ui` / `llm`）与 `scope.visible_when`（`canvas_open` / `always`）由 `/api/tools` 的 tool 条目直接表达，Host 按此索引并注入到 LLM / ToolProxy。
 ```
 
 ### 声明 Disable & Theme 支持（推荐）
@@ -318,7 +315,7 @@ observer.observe(container, { attributes: true, attributeFilter: ['data-aipp-dis
 }
 ```
 
-World One 启动时自动发现并加载（调用你的 `/api/skills` 和 `/api/widgets`）。
+World One 启动时自动发现并加载（调用你的 `/api/tools`、`/api/skills`、`/api/widgets`）。
 
 ### 方法 B：动态注册（开发时便捷）
 
@@ -355,11 +352,20 @@ class MyAppAippComplianceTest {
     AippWidgetSpec widgetSpec = new AippWidgetSpec();
 
     @Test
+    void tools_api_is_compliant() throws Exception {
+        JsonNode tools = json.readTree(
+            rest.getForString("http://localhost:" + port + "/api/tools"));
+
+        // Tool 三层结构合规（visibility / scope + OpenAI function schema + canvas 声明）
+        appSpec.assertValidToolsApiStructure(tools);
+    }
+
+    @Test
     void skills_api_is_compliant() throws Exception {
         JsonNode skills = json.readTree(
             rest.getForString("http://localhost:" + port + "/api/skills"));
 
-        // Layer 1 + 2 + 3 合规
+        // Skill Playbook 索引形状合规（skills 可为空数组）
         appSpec.assertValidSkillsApiStructure(skills);
     }
 
@@ -411,9 +417,6 @@ class MyAppAippComplianceTest {
 | `renders_output_of_skill` | string | 推荐 | 触发此 Widget 渲染的 Skill 名称 |
 | `welcome_message` | string | 推荐 | 进入 canvas session 时的欢迎语 |
 | `context_prompt` | string | 推荐 | canvas 激活时追加到 LLM system prompt 的领域上下文 |
-| `internal_tools` | string[] | 推荐 | Widget UI 直接调用的工具（不经 LLM） |
-| `canvas_skill.prompt` | string | 推荐 | canvas 模式下 LLM 的编排指令 |
-| `canvas_skill.tools` | string[] | 推荐 | canvas 模式下 LLM 可调用的工具列表 |
 | `supports.disable` | boolean | 推荐 | 声明支持 disable 契约 |
 | `supports.theme` | string[] | 推荐 | 声明支持的主题 CSS 变量字段 |
 | `views[].id` | string | — | 视图唯一标识，与前端 `aippReportView()` 对应 |
@@ -446,13 +449,17 @@ class MyAppAippComplianceTest {
 **Q：我的应用不需要 canvas，也要实现 Widget Manifest 吗？**  
 不需要。如果所有 Skill 的 `canvas.triggers` 都是 `false`，可以不实现 `/api/widgets`（返回空数组即可）。
 
-**Q：`internal_tools` 和 `canvas_skill.tools` 有什么区别？**
+**Q：widget UI 直接调用的工具 vs LLM 在 canvas 模式下调用的工具，怎么区分？**
 
-| | `internal_tools` | `canvas_skill.tools` |
+由 `/api/tools` 的 tool 条目元字段决定：
+
+| | `visibility=["ui"]` + `scope.visible_when="always"` | `visibility=["llm"]` + `scope.visible_when="canvas_open"` |
 |---|---|---|
 | 调用方 | Widget UI（Property Panel 直接操作） | LLM（用户自然语言触发） |
 | 路径 | Widget → world-one ToolProxy → 你的应用 | LLM Tool Call → GenericAgentLoop → 你的应用 |
 | 是否经 LLM | ❌ | ✅ |
+
+两者都在 widget 级 scope（`scope.level="widget"` + `scope.owner_widget="my-widget"`）下。同一个 tool 也可以同时对 UI 与 LLM 暴露：`visibility=["llm","ui"]`。
 
 **Q：`views` 是必须的吗？**  
 不强制，但**强烈推荐**。如果你的 Widget 有多个 Tab 或视图切换，声明 `views` + 调用 `aippReportView()` 能让 LLM 在每次对话中拥有精确的 UI 上下文，避免 LLM 在错误的上下文下给出错误操作指令。
@@ -479,7 +486,7 @@ my-aipp-app/
 ├── pom.xml                      (依赖 aipp-protocol)
 ├── src/main/java/
 │   └── com/example/MyAippApp.java
-│       ├── SkillsController.java  ← GET /api/skills
+│       ├── SkillsController.java  ← GET /api/tools + GET /api/skills
 │       ├── WidgetsController.java ← GET /api/widgets
 │       └── ToolsController.java   ← POST /api/tools/{name}
 └── src/test/java/
