@@ -54,9 +54,28 @@ JAVA_ARGS=(
 )
 
 if $DAEMON; then
-  nohup java -jar "$JAR" "${JAVA_ARGS[@]}" >> "$LOG" 2>&1 &
-  echo $! > "$PID"
-  echo "World One 已启动（daemon），PID=$(cat $PID)"
+  # Robust daemonization — root cause of "8090 老挂 / vanished with no log":
+  # plain `nohup ... &` leaves the JVM in the launching shell's process group
+  # and session, so closing the terminal (or Cursor reaping its child tree on
+  # exit) sends SIGTERM/SIGKILL to the whole group. nohup only handles SIGHUP,
+  # not SIGTERM/SIGKILL. We fix this by giving the JVM its own session via
+  # `setsid` — but macOS lacks setsid by default, so we use Python3's
+  # `os.setsid()` (always present on macOS 12+) as a portable shim.
+  #
+  # Sequence:
+  #   1. python3 forks, calls setsid(), then exec's java → java is now a
+  #      session/group leader independent of the launching shell.
+  #   2. stdin/out/err are redirected so terminal close doesn't propagate.
+  #   3. disown drops bash job-control reference for good measure.
+  python3 -c '
+import os, sys
+os.setsid()
+os.execvp("java", ["java", "-jar"] + sys.argv[1:])
+' "$JAR" "${JAVA_ARGS[@]}" </dev/null >> "$LOG" 2>&1 &
+  WORLDONE_PID=$!
+  disown $WORLDONE_PID 2>/dev/null || true
+  echo $WORLDONE_PID > "$PID"
+  echo "World One 已启动（daemon, detached session），PID=$WORLDONE_PID"
   echo "日志：tail -f $LOG"
 else
   java -jar "$JAR" "${JAVA_ARGS[@]}" &
@@ -81,7 +100,8 @@ register_app() {
   local app_id=$1 base_url=$2 port=$3
   # 等待 app 就绪
   for i in $(seq 1 10); do
-    if curl -sf "${base_url}/api/skills" > /dev/null 2>&1; then
+    if curl -sf "${base_url}/api/tools" > /dev/null 2>&1 \
+       || curl -sf "${base_url}/api/skills" > /dev/null 2>&1; then
       break
     fi
     sleep 1

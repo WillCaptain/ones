@@ -38,6 +38,46 @@ public class MemorySkillsController {
         return result;
     }
 
+    /**
+     * GET /api/tools — Phase 1 双路径产物：与 /api/skills 同构，字段改名 skills → tools，
+     * 每个 tool 补 {@code visibility} + {@code scope} 元字段，面向「Tool + Skill」二概念模型。
+     *
+     * <p>派生规则：
+     * <ul>
+     *   <li>{@code visibility}：{@code auto_pre_turn} 或 {@code background} 为 true →
+     *       {@code ["host"]}；否则 {@code ["llm","ui"]}。</li>
+     *   <li>{@code scope}：{@code level=app, owner_app=memory-one, visible_when=always}。</li>
+     * </ul>
+     */
+    @GetMapping("/tools")
+    public Map<String, Object> tools() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("app",           "memory-one");
+        result.put("version",       "1.0");
+        result.put("system_prompt", MEMORY_INTENT_PROMPT);
+        result.put("tools",         enrichToolList(buildSkillList(), "memory-one"));
+        return result;
+    }
+
+    /** 为每个 tool 补齐 visibility + scope 元字段（不覆盖已显式声明的字段）。 */
+    static List<Map<String, Object>> enrichToolList(List<Map<String, Object>> raw, String appId) {
+        List<Map<String, Object>> out = new ArrayList<>(raw.size());
+        for (Map<String, Object> t : raw) {
+            Map<String, Object> enriched = new LinkedHashMap<>(t);
+            boolean hostInvoked = Boolean.TRUE.equals(t.get("auto_pre_turn"))
+                               || Boolean.TRUE.equals(t.get("background"));
+            enriched.putIfAbsent("visibility",
+                hostInvoked ? List.of("host") : List.of("llm", "ui"));
+            enriched.putIfAbsent("scope", Map.of(
+                "level",        "app",
+                "owner_app",    appId,
+                "visible_when", "always"
+            ));
+            out.add(enriched);
+        }
+        return out;
+    }
+
     public static List<Map<String, Object>> buildSkillList() {
         return List.of(memoryLoadSkill(), memoryConsolidateSkill(),
                        memoryViewSkill(), memorySetInstructionSkill(),

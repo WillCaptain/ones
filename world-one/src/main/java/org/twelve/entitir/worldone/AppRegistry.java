@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -53,6 +54,15 @@ public class AppRegistry {
 
     /** appId → AppRegistration */
     private final Map<String, AppRegistration> registry = new ConcurrentHashMap<>();
+    @Autowired private WorldOneConfigStore configStore;
+    /** appId → 最近一次加载失败原因（用于 UI 标注离线/失败 app）。 */
+    private final Map<String, String> appLoadErrorIndex = new ConcurrentHashMap<>();
+    /** appId → 最近一次在线探测结果。 */
+    private final Map<String, Boolean> appOnlineIndex = new ConcurrentHashMap<>();
+    /** appId → 最近一次在线探测时间戳。 */
+    private final Map<String, Long> appOnlineCheckedAtMs = new ConcurrentHashMap<>();
+    /** 在线探测最小间隔，避免每次列表请求都触发网络探测。 */
+    private static final long APP_ONLINE_CHECK_INTERVAL_MS = 3000L;
 
     /**
      * toolName → AppRegistration（快速路由）。
@@ -139,6 +149,40 @@ public class AppRegistry {
      * widget_type → is_canvas_mode（true=Canvas Mode，false=Chat 内嵌 html_widget）。
      */
     private final Map<String, Boolean> widgetCanvasModeIndex = new ConcurrentHashMap<>();
+    /** widget_type → app_id（用于判定当前 active app）。 */
+    private final Map<String, String> widgetAppOwnerIndex = new ConcurrentHashMap<>();
+
+    /**
+     * widget_type → widget 级 {@code scope} 对象（tools_allow / tools_deny /
+     * forbid_execution）。结构参见 {@code aipp-protocol.md} § 3.2.1。
+     *
+     * <p>widget 激活时由 {@link GenericAgentLoop} 应用于当前 session 的工具过滤；
+     * 不负责 session 创建。
+     */
+    private final Map<String, Map<String, Object>> widgetScopeIndex = new ConcurrentHashMap<>();
+
+    /** widget_type → widget 级 {@code system_prompt}（激活态 SOP，可选）。 */
+    private final Map<String, String> widgetSystemPromptIndex = new ConcurrentHashMap<>();
+
+    /**
+     * widget_type → view_id → view 级 {@code scope}。
+     * 与 widget 级 scope 取交集，不能放宽。
+     */
+    private final Map<String, Map<String, Map<String, Object>>> widgetViewScopeIndex = new ConcurrentHashMap<>();
+
+    /** widget_type → view_id → view 级 {@code system_prompt}（激活该 view 时追加）。 */
+    private final Map<String, Map<String, String>> widgetViewSystemPromptIndex = new ConcurrentHashMap<>();
+
+    /**
+     * skill_name → kind（{@code "design"} / {@code "execution"}）。
+     *
+     * <p>见 {@code aipp-protocol.md} § 3.1。未显式声明者一律按 {@code execution}
+     * 处理（保守默认），以保证 widget {@code scope.forbid_execution} 对未标注的
+     * 老 skill 也生效。
+     */
+    private final Map<String, String> skillKindIndex = new ConcurrentHashMap<>();
+    /** 已告警的非法 prompt contribution layer（避免重复刷日志）。 */
+    private final Set<String> invalidContributionLayerWarned = ConcurrentHashMap.newKeySet();
 
     @PostConstruct
     public void loadAll() {
@@ -165,6 +209,9 @@ public class AppRegistry {
                                 appDir.getName(), attempt, e.getMessage());
                         try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
                     } else {
+                        String err = e.getMessage();
+                        if (err == null || err.isBlank()) err = e.getClass().getSimpleName();
+                        appLoadErrorIndex.put(appDir.getName(), err);
                         log.warn("Failed to load app from {} after {} attempts: {}",
                                 appDir.getName(), attempt, e.getMessage());
                     }
@@ -255,11 +302,9 @@ public class AppRegistry {
         return null;
     }
 
-    /** 聚合所有 app 的 system_prompt_contribution，拼接成一个完整的 system prompt。 */
-    public String aggregatedSystemPrompt() {
-        refreshMissingAppsIfNeeded();
-        StringBuilder sb = new StringBuilder();
-        sb.append("""
+    /** Host 全局规则（不含具体 AIPP 业务规则，但包含本域 app_list_view 的路由）。 */
+    public String hostSystemPrompt() {
+        return """
             你是 World One，一个通用 AI 智能体。所有回复使用中文。
 
             ════════════════════════════════════════
@@ -272,27 +317,19 @@ public class AppRegistry {
                用户界面不会有任何变化，用户会立刻发现你在撒谎。
 
             ════════════════════════════════════════
-            对话历史的解读规则（适用于所有工具操作）
+            对话历史的解读规则
             ════════════════════════════════════════
             对话历史仅是"参考上下文"，不代表工具已被调用或操作已完成。
             即使历史记录中出现过"已删除/已创建/已完成"等文字，
             也不能证明对应工具实际上被调用过。
-            用户每次发出操作指令，不管历史中有没有类似的回复，
-            都必须重新调用相应工具来执行——不能基于历史假设操作已完成。
-
-            ════════════════════════════════════════
-            工具响应解读规范
-            ════════════════════════════════════════
-            工具调用成功后，系统会根据工具的响应自动完成界面切换（如进入 Canvas 模式）。
-            你无需手动描述界面会如何变化，等待工具返回结果后再根据结果简洁回复用户。
+            用户每次发出操作指令都必须重新调用相应工具——不能基于历史假设操作已完成。
 
             ════════════════════════════════════════
             查看/列表类操作规则（html_widget 面板）
             ════════════════════════════════════════
-            "列出应用"、"查看记忆"、"显示列表"等查看类请求，每次都必须重新调用工具，
+            "列出/查看/显示 …… 列表"等查看类请求，每次都必须重新调用工具，
             获取最新数据展示给用户——不管历史中是否有过类似的操作记录。
             这类操作没有副作用，重复调用只会刷新展示，不会产生重复数据。
-            绝对禁止用历史中的旧操作记录代替重新调用工具。
 
             ════════════════════════════════════════
             Session 判断规范
@@ -300,15 +337,145 @@ public class AppRegistry {
             - 当前对话历史中已有某个 session_id 时，优先复用，不要重复创建新 session。
             - 用户说"继续"、"接着做"、"edit XX"、"进入XX"等意图时，
               先检查历史中是否已有匹配的 session_id，有则直接使用。
+            """ + buildAppDomainSection();
+    }
 
-            """);
-        for (AppRegistration app : registry.values()) {
-            if (app.systemPromptContribution() != null && !app.systemPromptContribution().isBlank()) {
-                sb.append("# ").append(app.name()).append("\n");
-                sb.append(app.systemPromptContribution()).append("\n\n");
+    /**
+     * Host 自有域：应用（AIPP app / 插件 / 功能模块）。
+     *
+     * <p>本段是 host 对 {@code app_list_view} 的 <b>路由声明 + 参数抽取规则 + 清单</b>。
+     * 与 world-entitir 的 world 域声明完全对称，LLM 看到对称结构后能更稳定地做选择。
+     */
+    private String buildAppDomainSection() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n\n════════════════════════════════════════\n")
+          .append("宿主域：应用（app / 插件 / 功能模块）\n")
+          .append("════════════════════════════════════════\n")
+          .append("【命中本域的触发词（必须是用户明说）】\n")
+          .append("  应用 / app / 插件 / 功能模块 / 已安装了哪些\n")
+          .append("  → 调用 `app_list_view`\n\n")
+          .append("【不属于本域，绝不命中 app_list_view】\n")
+          .append("  - 世界 / 本体 / 本体世界 / ontology —— 交由 world 域\n")
+          .append("  - 记忆 / 会话 / 业务流程（入职等）—— 交由对应 app\n")
+          .append("  注：若用户说\"记忆相关应用\"，核心词是\"应用\"（记忆只是主题限定），\n")
+          .append("      仍命中本工具，把\"记忆\"作为主题词在清单中语义匹配。\n\n")
+          .append("【ids 参数抽取（强制）】\n")
+          .append("  步骤 1：用户是否带主题/领域词？（\"记忆\"\"memory\"\"本体\"\"HR\" 等）\n")
+          .append("    - 是 → 在【当前应用清单】里做语义匹配（同义词/中英文/近义领域），\n")
+          .append("           把命中的 **真实 app_id** 作为 `ids` 数组传入\n")
+          .append("    - 否 → 省略 `ids`（或传空数组），列出全部\n")
+          .append("  正确示例：\n")
+          .append("    用户：\"列出记忆相关应用\"\n");
+        try {
+            List<Map<String, Object>> apps = buildAppsManifests();
+            List<Map<String, Object>> visible = apps.stream()
+                .filter(a -> {
+                    String id = String.valueOf(a.getOrDefault("app_id", ""));
+                    return !"worldone".equals(id) && !"worldone-system".equals(id);
+                })
+                .toList();
+
+            // 示例 app_id（优先用含"memory"或"记忆"的，找不到就用首个）
+            String exampleId = visible.stream()
+                .map(a -> String.valueOf(a.getOrDefault("app_id", "")))
+                .filter(id -> id.toLowerCase().contains("memory") || id.contains("记忆"))
+                .findFirst()
+                .orElseGet(() -> visible.isEmpty()
+                    ? "memory-one"
+                    : String.valueOf(visible.get(0).getOrDefault("app_id", "memory-one")));
+
+            sb.append("    调用：app_list_view(ids=[\"").append(exampleId).append("\"])\n\n")
+              .append("    用户：\"列出所有应用\"\n")
+              .append("    调用：app_list_view()   // 不传 ids\n\n");
+
+            sb.append("【当前应用清单（随请求快照，ids 必须从此清单里选）】\n");
+            if (visible.isEmpty()) {
+                sb.append("  （当前无已注册应用）\n");
+            } else {
+                for (Map<String, Object> a : visible) {
+                    String id   = String.valueOf(a.getOrDefault("app_id", ""));
+                    String name = String.valueOf(a.getOrDefault("app_name", id));
+                    String desc = String.valueOf(a.getOrDefault("app_description", ""));
+                    sb.append("  - ").append(id).append(" — ").append(name);
+                    if (desc != null && !desc.isBlank()) {
+                        sb.append(" — ").append(desc);
+                    }
+                    sb.append("\n");
+                }
             }
+        } catch (Exception e) {
+            sb.append("    调用：app_list_view(ids=[\"memory-one\"])\n\n")
+              .append("【当前应用清单】\n  （暂不可用：").append(e.getMessage()).append("）\n");
         }
         return sb.toString();
+    }
+
+    /**
+     * 聚合 AAP-Pre（命中前规则）：
+     * 1) 始终包含所有 working app；
+     * 2) active app 仅提高优先级（排在前面），但不排他。
+     */
+    public String aggregatedPrePrompt(Set<String> activeAppIds) {
+        refreshMissingAppsIfNeeded();
+        StringBuilder sb = new StringBuilder();
+        LinkedHashSet<String> orderedAppIds = new LinkedHashSet<>();
+        if (activeAppIds != null) {
+            for (String appId : activeAppIds) {
+                if (appId != null && !appId.isBlank() && registry.containsKey(appId)) {
+                    orderedAppIds.add(appId);
+                }
+            }
+        }
+        for (String appId : registry.keySet()) {
+            orderedAppIds.add(appId);
+        }
+        if (orderedAppIds.isEmpty()) return "";
+
+        for (String appId : orderedAppIds) {
+            AppRegistration app = registry.get(appId);
+            if (app == null) continue;
+            List<String> promptParts = new ArrayList<>();
+            if (app.systemPromptContribution() != null && !app.systemPromptContribution().isBlank()) {
+                promptParts.add(app.systemPromptContribution().strip());
+            }
+            List<Map<String, Object>> contributions = app.promptContributions() != null
+                    ? app.promptContributions() : List.of();
+            contributions.stream()
+                    .filter(this::isKnownContributionLayer)
+                    .filter(AppRegistry::isPreContribution)
+                    .sorted(Comparator.comparingInt(AppRegistry::contributionPriority).reversed())
+                    .map(AppRegistry::contributionContent)
+                    .filter(s -> s != null && !s.isBlank())
+                    .map(String::strip)
+                    .forEach(promptParts::add);
+            if (promptParts.isEmpty()) continue;
+            sb.append("# ").append(app.name()).append(" (AAP-Pre)\n");
+            sb.append(String.join("\n\n", promptParts)).append("\n\n");
+        }
+        return sb.toString();
+    }
+
+    /** 聚合当前 active app 的 system prompt（Host + AAP-Pre）。 */
+    public String aggregatedSystemPrompt(Set<String> activeAppIds) {
+        refreshMissingAppsIfNeeded();
+        StringBuilder sb = new StringBuilder();
+        sb.append(hostSystemPrompt()).append("\n\n");
+        sb.append(aggregatedPrePrompt(activeAppIds));
+        return sb.toString();
+    }
+
+    /** 聚合所有 app（兼容旧接口，用于无上下文场景）。 */
+    public String aggregatedSystemPrompt() {
+        refreshMissingAppsIfNeeded();
+        return aggregatedSystemPrompt(Set.of());
+    }
+
+    /** 通过 appId 获取展示名称（不存在时返回 appId）。 */
+    public String appDisplayName(String appId) {
+        if (appId == null || appId.isBlank()) return "unknown-app";
+        AppRegistration reg = registry.get(appId);
+        if (reg == null || reg.name() == null || reg.name().isBlank()) return appId;
+        return reg.name();
     }
 
     /**
@@ -363,6 +530,46 @@ public class AppRegistry {
     }
 
     /**
+     * 返回 widget 级 {@code scope} 对象（可能为 {@code null}）。
+     * 结构：{@code {"tools_allow":[...],"tools_deny":[...],"forbid_execution":bool}}。
+     */
+    public Map<String, Object> getWidgetScope(String widgetType) {
+        if (widgetType == null) return null;
+        return widgetScopeIndex.get(widgetType);
+    }
+
+    /** 返回 widget 级 {@code system_prompt}（可能为 {@code null}）。 */
+    public String getWidgetSystemPrompt(String widgetType) {
+        if (widgetType == null) return null;
+        return widgetSystemPromptIndex.get(widgetType);
+    }
+
+    /** 返回指定 view 的 scope（widget+view 双键查找；可能为 {@code null}）。 */
+    public Map<String, Object> getWidgetViewScope(String widgetType, String viewId) {
+        if (widgetType == null || viewId == null) return null;
+        Map<String, Map<String, Object>> m = widgetViewScopeIndex.get(widgetType);
+        return m == null ? null : m.get(viewId);
+    }
+
+    /** 返回指定 view 的 {@code system_prompt}（可能为 {@code null}）。 */
+    public String getWidgetViewSystemPrompt(String widgetType, String viewId) {
+        if (widgetType == null || viewId == null) return null;
+        Map<String, String> m = widgetViewSystemPromptIndex.get(widgetType);
+        return m == null ? null : m.get(viewId);
+    }
+
+    /**
+     * 判定某 skill 是否属于"执行类"（受 widget/view {@code scope.forbid_execution} 约束）。
+     *
+     * <p>规则：显式 {@code kind=design} → 不是执行；其余（含缺省）一律按执行处理。
+     */
+    public boolean isSkillExecution(String skillName) {
+        if (skillName == null) return true;
+        String kind = skillKindIndex.get(skillName);
+        return !"design".equalsIgnoreCase(kind);
+    }
+
+    /**
      * 根据工具名找到对应的 app。
      * 包含 skill-level tool 和 widget internal tool。
      * @throws IllegalArgumentException 如果找不到
@@ -371,6 +578,27 @@ public class AppRegistry {
         AppRegistration app = toolIndex.get(toolName);
         if (app == null) throw new IllegalArgumentException("No app found for tool: " + toolName);
         return app;
+    }
+
+    /**
+     * 将 Host 级环境变量注入到调用参数（app 覆盖优先，全局兜底）。
+     * 默认对调用方显式提供的同名参数不覆盖；
+     * 但 env 作为运行环境策略变量，始终由 Host setting 覆盖。
+     */
+    public Map<String, Object> injectEnvVars(String appId, Map<String, Object> args) {
+        Map<String, Object> out = new LinkedHashMap<>(args == null ? Map.of() : args);
+        if (configStore == null) return out;
+        Map<String, String> envVars = configStore.resolveEnvVarsForApp(appId);
+        for (Map.Entry<String, String> e : envVars.entrySet()) {
+            if (e.getKey() == null || e.getKey().isBlank()) continue;
+            if (e.getValue() == null || e.getValue().isBlank()) continue;
+            if ("env".equalsIgnoreCase(e.getKey())) {
+                out.put("env", e.getValue());
+            } else {
+                out.putIfAbsent(e.getKey(), e.getValue());
+            }
+        }
+        return out;
     }
 
     /**
@@ -531,8 +759,19 @@ public class AppRegistry {
                                 String systemPromptContribution,
                                 List<Map<String, Object>> skills,
                                 List<Map<String, Object>> widgets) {
+        registerBuiltin(appId, name, baseUrl, systemPromptContribution, List.of(), skills, widgets);
+    }
+
+    /**
+     * 注册 worldone 内置 app（含 prompt_contributions）。
+     */
+    public void registerBuiltin(String appId, String name, String baseUrl,
+                                String systemPromptContribution,
+                                List<Map<String, Object>> promptContributions,
+                                List<Map<String, Object>> skills,
+                                List<Map<String, Object>> widgets) {
         AppRegistration reg = new AppRegistration(appId, name, baseUrl,
-                systemPromptContribution, skills, widgets);
+                systemPromptContribution, promptContributions, skills, widgets);
         registry.put(appId, reg);
 
         for (Map<String, Object> skill : skills) {
@@ -546,6 +785,7 @@ public class AppRegistry {
                     skillInjectContextIndex.put(toolName.toString(), icTyped);
                 }
             }
+            indexSkillKind(skill);
         }
 
         for (Map<String, Object> widget : widgets) {
@@ -591,11 +831,9 @@ public class AppRegistry {
                 }
             }
 
-            // views / refresh_skill / mutating_tools（AIPP Widget View 协议）
             indexWidgetViewFields(type, widget);
-
-            // app_id / is_main / is_canvas_mode（AIPP App Identity 协议）
             indexWidgetAppIdentity(type, widget);
+            indexWidgetContext(type, widget);
         }
         log.info("Registered builtin app: {} ({} skills, {} widgets)",
                 appId, skills.size(), widgets.size());
@@ -618,13 +856,16 @@ public class AppRegistry {
             return;
         }
 
-        List<Map<String, Object>> skills  = fetchSkills(appId, baseUrl);
+        JsonNode skillsRoot = fetchSkillsRoot(baseUrl);
+        List<Map<String, Object>> skills  = fetchSkills(appId, skillsRoot);
         List<Map<String, Object>> widgets = fetchWidgets(appId, baseUrl);
-        String systemPrompt = fetchSystemPrompt(appId, baseUrl);
+        String systemPrompt = fetchSystemPrompt(skillsRoot);
+        List<Map<String, Object>> promptContributions = fetchPromptContributions(skillsRoot);
         String name = manifest.path("name").asText(appId);
 
-        AppRegistration reg = new AppRegistration(appId, name, baseUrl, systemPrompt, skills, widgets);
+        AppRegistration reg = new AppRegistration(appId, name, baseUrl, systemPrompt, promptContributions, skills, widgets);
         registry.put(appId, reg);
+        appLoadErrorIndex.remove(appId);
 
         for (Map<String, Object> skill : skills) {
             Object toolName = skill.get("name");
@@ -638,6 +879,7 @@ public class AppRegistry {
                     skillInjectContextIndex.put(toolName.toString(), icTyped);
                 }
             }
+            indexSkillKind(skill);
         }
 
         for (Map<String, Object> widget : widgets) {
@@ -699,6 +941,9 @@ public class AppRegistry {
 
             // app_id / is_main / is_canvas_mode（AIPP App Identity 协议）
             indexWidgetAppIdentity(type, widget);
+
+            // session.mode / inherit / scope / system_prompt（Widget Session 协议）
+            indexWidgetContext(type, widget);
         }
 
         // Fetch app manifest from /api/app (optional – gracefully skip if not available)
@@ -747,14 +992,74 @@ public class AppRegistry {
         boolean canvasMode = isCanvasMode == null || Boolean.TRUE.equals(isCanvasMode);
         widgetCanvasModeIndex.put(wt, canvasMode);
 
+        Object appId = widget.get("app_id");
+        if (appId != null && !appId.toString().isBlank()) {
+            widgetAppOwnerIndex.put(wt, appId.toString());
+        }
+
         Object isMain = widget.get("is_main");
         if (Boolean.TRUE.equals(isMain)) {
-            Object appId = widget.get("app_id");
             if (appId != null && !appId.toString().isBlank()) {
                 appMainWidgetIndex.put(appId.toString(), wt);
                 log.debug("Registered main widget for app {}: {}", appId, wt);
             }
         }
+    }
+
+    /** 索引 skill 的 {@code kind} 字段（design / execution），供 dedicated widget session 过滤使用。 */
+    private void indexSkillKind(Map<String, Object> skill) {
+        Object name = skill.get("name");
+        if (name == null || name.toString().isBlank()) return;
+        Object kind = skill.get("kind");
+        if (kind != null && !kind.toString().isBlank()) {
+            skillKindIndex.put(name.toString(), kind.toString());
+        }
+    }
+
+    /**
+     * 索引 widget manifest 中的 {@code system_prompt} / {@code scope} / {@code views[]}
+     * 字段（Widget Context & Scope 协议，{@code aipp-protocol.md} § 3.2.1）。
+     */
+    @SuppressWarnings("unchecked")
+    private void indexWidgetContext(Object type, Map<String, Object> widget) {
+        if (type == null) return;
+        String wt = type.toString();
+
+        Object sp = widget.get("system_prompt");
+        if (sp != null && !sp.toString().isBlank()) {
+            widgetSystemPromptIndex.put(wt, sp.toString());
+        }
+        Object scope = widget.get("scope");
+        if (scope instanceof Map<?, ?> sMap) {
+            widgetScopeIndex.put(wt, (Map<String, Object>) sMap);
+        }
+        Object views = widget.get("views");
+        if (views instanceof List<?> vList) {
+            Map<String, Map<String, Object>> viewScopes = new ConcurrentHashMap<>();
+            Map<String, String> viewPrompts = new ConcurrentHashMap<>();
+            for (Object v : vList) {
+                if (!(v instanceof Map<?, ?> vMap)) continue;
+                Object vid = vMap.get("id");
+                if (vid == null || vid.toString().isBlank()) continue;
+                Object vsp = vMap.get("system_prompt");
+                if (vsp != null && !vsp.toString().isBlank()) {
+                    viewPrompts.put(vid.toString(), vsp.toString());
+                }
+                Object vscope = vMap.get("scope");
+                if (vscope instanceof Map<?, ?> vsMap) {
+                    viewScopes.put(vid.toString(), (Map<String, Object>) vsMap);
+                }
+            }
+            if (!viewScopes.isEmpty()) widgetViewScopeIndex.put(wt, viewScopes);
+            if (!viewPrompts.isEmpty()) widgetViewSystemPromptIndex.put(wt, viewPrompts);
+        }
+    }
+
+    /** 根据 widget_type 反查所属 app_id。 */
+    public String getWidgetOwnerAppId(String widgetType) {
+        refreshMissingAppsIfNeeded();
+        if (widgetType == null || widgetType.isBlank()) return null;
+        return widgetAppOwnerIndex.get(widgetType);
     }
 
     /** 从 /api/app 读取 app manifest，缓存到 appManifestIndex。若端点不存在，静默跳过。 */
@@ -776,7 +1081,7 @@ public class AppRegistry {
      */
     public List<Map<String, Object>> buildAppsManifests() {
         refreshMissingAppsIfNeeded();
-        List<Map<String, Object>> result = new ArrayList<>();
+        Map<String, Map<String, Object>> resultByApp = new LinkedHashMap<>();
         for (AppRegistration reg : registry.values()) {
             Map<String, Object> m = appManifestIndex.getOrDefault(reg.appId(), null);
             if (m != null) {
@@ -784,7 +1089,13 @@ public class AppRegistry {
                 Map<String, Object> enriched = new LinkedHashMap<>(m);
                 String mainWidget = appMainWidgetIndex.get(reg.appId());
                 if (mainWidget != null) enriched.put("main_widget_type", mainWidget);
-                result.add(enriched);
+                boolean online = isAppOnline(reg);
+                boolean active = !Boolean.FALSE.equals(enriched.get("is_active"));
+                enriched.put("is_active", active && online);
+                enriched.put("load_ok", online);
+                enriched.put("load_error", online ? "" : appLoadErrorIndex.getOrDefault(
+                        reg.appId(), "当前无法连接应用服务，请确认应用已启动且可访问"));
+                resultByApp.put(reg.appId(), enriched);
             } else {
                 // 最小 manifest（没有 /api/app 的内置 app）
                 Map<String, Object> min = new LinkedHashMap<>();
@@ -797,10 +1108,50 @@ public class AppRegistry {
                 min.put("version",         "");
                 String mainWidget = appMainWidgetIndex.get(reg.appId());
                 if (mainWidget != null) min.put("main_widget_type", mainWidget);
-                result.add(min);
+                boolean online = isAppOnline(reg);
+                min.put("is_active", online);
+                min.put("load_ok", online);
+                min.put("load_error", online ? "" : appLoadErrorIndex.getOrDefault(
+                        reg.appId(), "当前无法连接应用服务，请确认应用已启动且可访问"));
+                resultByApp.put(reg.appId(), min);
             }
         }
-        return result;
+
+        // 追加“已安装但当前加载失败”的 app，保证前端可以灰显展示并给出告警。
+        if (Files.exists(APPS_ROOT)) {
+            File[] appDirs = APPS_ROOT.toFile().listFiles(File::isDirectory);
+            if (appDirs != null) {
+                for (File appDir : appDirs) {
+                    Path manifestPath = appDir.toPath().resolve("manifest.json");
+                    if (!Files.exists(manifestPath)) continue;
+                    try {
+                        JsonNode manifest = JSON.readTree(Files.readString(manifestPath));
+                        String appId = manifest.path("id").asText(appDir.getName());
+                        if (resultByApp.containsKey(appId)) continue;
+
+                        Map<String, Object> min = new LinkedHashMap<>();
+                        min.put("app_id", appId);
+                        min.put("app_name", manifest.path("app_name").asText(
+                                manifest.path("name").asText(appId)));
+                        min.put("app_icon", manifest.path("app_icon").asText(""));
+                        min.put("app_description", manifest.path("app_description").asText(
+                                manifest.path("description").asText("应用加载失败，请检查服务状态")));
+                        min.put("app_color", manifest.path("app_color").asText("#6b7a9e"));
+                        min.put("is_active", false);
+                        min.put("version", manifest.path("version").asText(""));
+                        String mainWidget = manifest.path("main_widget_type").asText("");
+                        if (!mainWidget.isBlank()) min.put("main_widget_type", mainWidget);
+                        min.put("load_ok", false);
+                        min.put("load_error", appLoadErrorIndex.getOrDefault(
+                                appId, "当前无法连接应用服务，请确认应用已启动且可访问"));
+                        resultByApp.put(appId, min);
+                    } catch (Exception ignored) {
+                        // skip malformed manifest
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(resultByApp.values());
     }
 
     /** 查找 appId 对应的 main widget type；无 is_main=true widget 时返回 null。 */
@@ -830,12 +1181,28 @@ public class AppRegistry {
         return null;
     }
 
+    /**
+     * Phase 2：优先从 {@code /api/tools}（AIPP 新端点，payload 带 visibility/scope 元数据）
+     * 读取；若 app 尚未升级到新端点，回退到 {@code /api/skills}。
+     *
+     * <p>返回的 JsonNode 根结构始终兼容老字段（{@code system_prompt} /
+     * {@code prompt_contributions}），tool 列表位于 {@code tools} 或 {@code skills}
+     * 字段之一，由 {@link #fetchSkills(String, JsonNode)} 统一抽取。
+     */
+    private JsonNode fetchSkillsRoot(String baseUrl) throws Exception {
+        try {
+            return JSON.readTree(get(baseUrl + "/api/tools"));
+        } catch (Exception newEndpointMiss) {
+            return JSON.readTree(get(baseUrl + "/api/skills"));
+        }
+    }
+
     @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> fetchSkills(String appId, String baseUrl) throws Exception {
-        String body = get(baseUrl + "/api/skills");
-        JsonNode root = JSON.readTree(body);
+    private List<Map<String, Object>> fetchSkills(String appId, JsonNode root) throws Exception {
         List<Map<String, Object>> result = new ArrayList<>();
-        for (JsonNode skill : root.path("skills")) {
+        // Phase 2：优先读 "tools"（/api/tools 的字段名），回退到 "skills"（旧端点字段名）。
+        JsonNode list = root.has("tools") ? root.path("tools") : root.path("skills");
+        for (JsonNode skill : list) {
             Map<String, Object> s = JSON.treeToValue(skill, Map.class);
             s.put("app_id", appId);
             result.add(s);
@@ -851,13 +1218,62 @@ public class AppRegistry {
             JSON.getTypeFactory().constructCollectionType(List.class, Map.class));
     }
 
-    private String fetchSystemPrompt(String appId, String baseUrl) {
+    private String fetchSystemPrompt(JsonNode root) {
+        return root.path("system_prompt").asText("");
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> fetchPromptContributions(JsonNode root) {
         try {
-            JsonNode root = JSON.readTree(get(baseUrl + "/api/skills"));
-            return root.path("system_prompt").asText("");
+            List<Map<String, Object>> result = new ArrayList<>();
+            JsonNode node = root.path("prompt_contributions");
+            if (!node.isArray()) return List.of();
+            for (JsonNode c : node) {
+                result.add(JSON.treeToValue(c, Map.class));
+            }
+            return result;
         } catch (Exception e) {
-            return "";
+            return List.of();
         }
+    }
+
+    private static String contributionContent(Map<String, Object> c) {
+        Object content = c.get("content");
+        if (content instanceof String s) return s;
+        Object prompt = c.get("prompt");
+        if (prompt instanceof String s) return s;
+        Object text = c.get("text");
+        if (text instanceof String s) return s;
+        return null;
+    }
+
+    private static int contributionPriority(Map<String, Object> c) {
+        Object p = c.get("priority");
+        if (p instanceof Number n) return n.intValue();
+        try { return Integer.parseInt(String.valueOf(p)); } catch (Exception ignored) { return 0; }
+    }
+
+    private static boolean isPreContribution(Map<String, Object> c) {
+        return "aap_pre".equals(norm(c.get("layer")));
+    }
+
+    private static boolean isPostContribution(Map<String, Object> c) {
+        return "aap_post".equals(norm(c.get("layer")));
+    }
+
+    private boolean isKnownContributionLayer(Map<String, Object> c) {
+        String layer = norm(c.get("layer"));
+        if ("aap_pre".equals(layer) || "aap_post".equals(layer)) return true;
+        String id = Objects.toString(c.get("id"), "(no-id)");
+        String warnKey = id + "|" + layer;
+        if (invalidContributionLayerWarned.add(warnKey)) {
+            log.warn("Ignoring prompt_contribution without valid layer (expected aap_pre|aap_post): id={}", id);
+        }
+        return false;
+    }
+
+    private static String norm(Object v) {
+        return v == null ? "" : v.toString().trim().toLowerCase(Locale.ROOT);
     }
 
     private String get(String url) throws Exception {
@@ -897,9 +1313,40 @@ public class AppRegistry {
                         log.info("Runtime app refresh loaded: {}", dirName);
                     }
                 } catch (Exception e) {
+                    String err = e.getMessage();
+                    if (err == null || err.isBlank()) err = e.getClass().getSimpleName();
+                    appLoadErrorIndex.put(dirName, err);
                     log.debug("Runtime app refresh skipped {}: {}", dirName, e.getMessage());
                 }
             }
         }
+    }
+
+    /** 返回 app 当前在线状态（按固定间隔探测 /api/tools，回退 /api/skills）。 */
+    private boolean isAppOnline(AppRegistration reg) {
+        String appId = reg.appId();
+        long now = System.currentTimeMillis();
+        Long lastChecked = appOnlineCheckedAtMs.get(appId);
+        if (lastChecked != null && now - lastChecked < APP_ONLINE_CHECK_INTERVAL_MS) {
+            return appOnlineIndex.getOrDefault(appId, true);
+        }
+        boolean online;
+        try {
+            try {
+                get(reg.baseUrl() + "/api/tools");
+            } catch (Exception newMiss) {
+                get(reg.baseUrl() + "/api/skills");
+            }
+            online = true;
+            appLoadErrorIndex.remove(appId);
+        } catch (Exception e) {
+            online = false;
+            String err = e.getMessage();
+            if (err == null || err.isBlank()) err = e.getClass().getSimpleName();
+            appLoadErrorIndex.put(appId, err);
+        }
+        appOnlineIndex.put(appId, online);
+        appOnlineCheckedAtMs.put(appId, now);
+        return online;
     }
 }
