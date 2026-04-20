@@ -33,28 +33,9 @@ public class MemoryWidgetsController {
 
         widget.put("renders_output_of_skill", "memory_view");
         widget.put("welcome_message", "记忆管理面板已打开。你可以查看所有记忆，也可以直接告诉我修改或删除某条。");
-
-        widget.put("internal_tools", List.of(
-            "memory_query", "memory_create", "memory_update",
-            "memory_supersede", "memory_delete_request", "memory_delete_confirmed",
-            "memory_delete", "memory_promote",
-            "memory_set_instruction", "memory_load"
-        ));
-
-        widget.put("canvas_skill", Map.of(
-            "tools",  buildCanvasTools(),
-            "prompt", """
-                ## Memory 管理 Canvas 模式
-                当前处于 Memory 管理 Canvas 中。你可以帮用户查询、创建、修改、删除、提升 memory。
-                - 用 memory_query 查询（支持关键词、类型、scope 过滤）
-                - 用 memory_update 修改 content/importance/tags
-                - 用 memory_supersede 用新内容取代旧 memory
-                - 用 memory_delete_request 删除（⚠️ 必须用此工具，不要用 memory_delete！会弹出确认框，用户确认后才真正删除）
-                - 用 memory_promote 把 SESSION memory 提升为 GLOBAL
-                - 用 memory_create 手工添加新 memory
-                每次操作后简洁说明结果即可，不要列出完整 JSON。
-                """
-        ));
+        // Phase 5b：widget 的 internal_tools / canvas_skill 字段已从 manifest 移除；
+        // 数据源见 {@link #memoryManagerInternalTools()} 与 {@link #memoryManagerCanvasSkill()}，
+        // 由 MemorySkillsController.buildWidgetScopedTools 注入到 /api/tools。
 
         widget.put("context_prompt", """
             ## 当前 Canvas：Memory 管理
@@ -97,6 +78,34 @@ public class MemoryWidgetsController {
         ));
 
         return widget;
+    }
+
+    /** Phase 5b：memory-manager widget UI 工具名清单，供 MemorySkillsController 注入 /api/tools。 */
+    static List<String> memoryManagerInternalTools() {
+        return List.of(
+            "memory_query", "memory_create", "memory_update",
+            "memory_supersede", "memory_delete_request", "memory_delete_confirmed",
+            "memory_delete", "memory_promote",
+            "memory_set_instruction", "memory_load"
+        );
+    }
+
+    /** Phase 5b：memory-manager canvas 打开时 LLM 可调用的工具集 + prompt，供 MemorySkillsController 注入 /api/tools。 */
+    static Map<String, Object> memoryManagerCanvasSkill() {
+        return Map.of(
+            "tools",  new MemoryWidgetsController().buildCanvasTools(),
+            "prompt", """
+                ## Memory 管理 Canvas 模式
+                当前处于 Memory 管理 Canvas 中。你可以帮用户查询、创建、修改、删除、提升 memory。
+                - 用 memory_query 查询（支持关键词、类型、scope 过滤）
+                - 用 memory_update 修改 content/importance/tags
+                - 用 memory_supersede 用新内容取代旧 memory
+                - 用 memory_delete_request 删除（⚠️ 必须用此工具，不要用 memory_delete！会弹出确认框，用户确认后才真正删除）
+                - 用 memory_promote 把 SESSION memory 提升为 GLOBAL
+                - 用 memory_create 手工添加新 memory
+                每次操作后简洁说明结果即可，不要列出完整 JSON。
+                """
+        );
     }
 
     private List<Map<String, Object>> buildCanvasTools() {

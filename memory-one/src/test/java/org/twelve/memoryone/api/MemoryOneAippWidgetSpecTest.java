@@ -47,6 +47,10 @@ class MemoryOneAippWidgetSpecTest {
         skillsMap.put("app",     "memory-one");
         skillsMap.put("version", "1.0");
         skillsMap.put("skills",  MemorySkillsController.buildSkillList());
+        var allTools = new java.util.ArrayList<Map<String, Object>>();
+        allTools.addAll(MemorySkillsController.buildSkillList());
+        allTools.addAll(MemorySkillsController.buildWidgetScopedTools("memory-one"));
+        skillsMap.put("tools", allTools);
         skillsNode = json.valueToTree(skillsMap);
 
         widgetsNode = json.valueToTree(new MemoryWidgetsController().widgets());
@@ -141,17 +145,21 @@ class MemoryOneAippWidgetSpecTest {
     }
 
     @Test
-    @DisplayName("[widgets] memory-manager 声明 internal_tools（含增删改查工具）")
-    void memory_manager_declares_required_internal_tools() {
-        JsonNode widget = widgetSpec.findWidget(widgetsNode, "memory-manager");
-        assertThat(widget.has("internal_tools")).isTrue();
-        assertThat(widget.get("internal_tools").isArray()).isTrue();
+    @DisplayName("[tools] memory-manager 的 UI 工具通过 /api/tools 暴露（Phase 5b：widget manifest 不再携带 internal_tools）")
+    void memory_manager_ui_tools_exposed_via_tools_api() {
+        // Phase 5b：internal_tools 字段已从 widget manifest 移除；
+        // 对应 UI 工具必须以 scope.level=widget + visibility 含 "ui" 的形式出现在 /api/tools。
+        assertThat(widgetsNode.findPath("widgets").findPath("internal_tools").isMissingNode())
+                .as("widget manifest 不应再出现 internal_tools 字段").isTrue();
 
         for (String tool : new String[]{"memory_query", "memory_create", "memory_update",
                                         "memory_delete", "memory_promote"}) {
-            boolean found = toStream(widget.get("internal_tools"))
-                    .anyMatch(n -> tool.equals(n.asText()));
-            assertThat(found).as("internal_tools 应包含 " + tool).isTrue();
+            boolean found = toStream(skillsNode.get("tools"))
+                    .anyMatch(t -> tool.equals(t.path("name").asText())
+                            && "widget".equals(t.path("scope").path("level").asText())
+                            && "memory-manager".equals(t.path("scope").path("owner_widget").asText())
+                            && toStream(t.path("visibility")).anyMatch(v -> "ui".equals(v.asText())));
+            assertThat(found).as("/api/tools 应包含 UI 可见的 widget-scoped tool: " + tool).isTrue();
         }
     }
 

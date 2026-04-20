@@ -839,7 +839,7 @@ public class AppRegistry {
             indexSkillKind(skill);
         }
 
-        Set<String> preloadedCanvas = indexWidgetScopedFromTools(skills, reg);
+        indexWidgetScopedFromTools(skills, reg);
 
         for (Map<String, Object> widget : widgets) {
             Object type = widget.get("type");
@@ -862,28 +862,12 @@ public class AppRegistry {
                 widgetTitleIndex.put(type.toString(), title);
             }
 
-            if (type != null && !preloadedCanvas.contains(type.toString())) {
-                Object canvasSkill = widget.get("canvas_skill");
-                if (canvasSkill instanceof Map<?, ?> csMap) {
-                    Object toolsNode = csMap.get("tools");
-                    if (toolsNode instanceof List<?> toolsList) {
-                        @SuppressWarnings("unchecked")
-                        List<Map<String, Object>> tools = (List<Map<String, Object>>) toolsList;
-                        widgetCanvasToolsIndex.put(type.toString(), tools);
-                    }
-                }
-            }
+            // Phase 5b：widget manifest 不再携带 canvas_skill / internal_tools；
+            // 这些 widget 级 tool 一律由 /api/tools 通过 indexWidgetScopedFromTools() 填充。
 
             Object rendersFor = widget.get("renders_output_of_skill");
             if (type != null && rendersFor != null) {
                 skillOutputWidgetIndex.put(rendersFor.toString(), type.toString());
-            }
-
-            Object internalTools = widget.get("internal_tools");
-            if (internalTools instanceof List<?> toolList) {
-                for (Object tool : toolList) {
-                    if (tool != null) toolIndex.put(tool.toString(), reg);
-                }
             }
 
             indexWidgetViewFields(type, widget);
@@ -937,7 +921,7 @@ public class AppRegistry {
             indexSkillKind(skill);
         }
 
-        Set<String> preloadedCanvas = indexWidgetScopedFromTools(skills, reg);
+        indexWidgetScopedFromTools(skills, reg);
 
         for (Map<String, Object> widget : widgets) {
             Object type = widget.get("type");
@@ -963,37 +947,14 @@ public class AppRegistry {
                 widgetTitleIndex.put(type.toString(), title);
             }
 
-            // widget_type → canvas_skill.tools（Phase 3：仅当 /api/tools 未贡献时回退）
-            if (type != null && !preloadedCanvas.contains(type.toString())) {
-                Object canvasSkill = widget.get("canvas_skill");
-                if (canvasSkill instanceof Map<?, ?> csMap) {
-                    Object toolsNode = csMap.get("tools");
-                    if (toolsNode instanceof List<?> toolsList) {
-                        @SuppressWarnings("unchecked")
-                        List<Map<String, Object>> tools = (List<Map<String, Object>>) toolsList;
-                        widgetCanvasToolsIndex.put(type.toString(), tools);
-                        log.debug("Registered {} canvas tools from widget manifest (fallback): {}",
-                                tools.size(), type);
-                    }
-                }
-            }
+            // Phase 5b：widget manifest 不再携带 canvas_skill / internal_tools；
+            // 这些 widget 级 tool 一律由 /api/tools 通过 indexWidgetScopedFromTools() 填充。
 
             // skill_name → widget_type（skill 执行后自动渲染输出）
             Object rendersFor = widget.get("renders_output_of_skill");
             if (type != null && rendersFor != null) {
                 skillOutputWidgetIndex.put(rendersFor.toString(), type.toString());
                 log.debug("Registered skill-output-widget: skill={} → widget={}", rendersFor, type);
-            }
-
-            // internal_tools → 路由到此 app（ToolProxy 使用，LLM 不可见）
-            Object internalTools = widget.get("internal_tools");
-            if (internalTools instanceof List<?> toolList) {
-                for (Object tool : toolList) {
-                    if (tool != null) {
-                        toolIndex.put(tool.toString(), reg);
-                        log.debug("Registered internal tool for ToolProxy: {}", tool);
-                    }
-                }
             }
 
             // views / refresh_skill / mutating_tools（AIPP Widget View 协议）
