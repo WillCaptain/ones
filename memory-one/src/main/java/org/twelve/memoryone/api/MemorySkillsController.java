@@ -55,8 +55,90 @@ public class MemorySkillsController {
         result.put("app",           "memory-one");
         result.put("version",       "1.0");
         result.put("system_prompt", MEMORY_INTENT_PROMPT);
-        result.put("tools",         enrichToolList(buildSkillList(), "memory-one"));
+
+        List<Map<String, Object>> all = new ArrayList<>();
+        all.addAll(enrichToolList(buildSkillList(), "memory-one"));
+        all.addAll(buildWidgetScopedTools("memory-one"));
+        result.put("tools", all);
         return result;
+    }
+
+    /**
+     * Phase 3：把 widget manifest 里 {@code internal_tools} 与 {@code canvas_skill.tools}
+     * 合并上移到 {@code /api/tools}，带完整 {@code visibility} + {@code scope} 元字段。
+     * 合并规则与 world-entitir SkillsController 一致。
+     */
+    @SuppressWarnings("unchecked")
+    static List<Map<String, Object>> buildWidgetScopedTools(String appId) {
+        Map<String, Object> widgetsRoot = new MemoryWidgetsController().widgets();
+        Object widgetsObj = widgetsRoot.get("widgets");
+        if (!(widgetsObj instanceof List<?> widgets)) return List.of();
+
+        Map<String, Map<String, Object>> merged = new LinkedHashMap<>();
+
+        for (Object w : widgets) {
+            if (!(w instanceof Map<?, ?> widgetMap)) continue;
+            Map<String, Object> widget = (Map<String, Object>) widgetMap;
+            Object typeObj = widget.get("type");
+            if (typeObj == null) continue;
+            String widgetType = typeObj.toString();
+
+            Object csObj = widget.get("canvas_skill");
+            if (csObj instanceof Map<?, ?> csMap) {
+                Object toolsObj = ((Map<String, Object>) csMap).get("tools");
+                if (toolsObj instanceof List<?> toolsList) {
+                    for (Object t : toolsList) {
+                        if (!(t instanceof Map<?, ?> tMap)) continue;
+                        Map<String, Object> toolDef = (Map<String, Object>) tMap;
+                        Object nameObj = toolDef.get("name");
+                        if (nameObj == null) continue;
+                        String name = nameObj.toString();
+                        Map<String, Object> entry = new LinkedHashMap<>(toolDef);
+                        entry.put("visibility", new ArrayList<>(List.of("llm")));
+                        entry.put("scope", widgetScope(appId, widgetType, "canvas_open"));
+                        merged.put(name, entry);
+                    }
+                }
+            }
+
+            Object itObj = widget.get("internal_tools");
+            if (itObj instanceof List<?> itList) {
+                for (Object n : itList) {
+                    if (n == null) continue;
+                    String name = n.toString();
+                    Map<String, Object> existing = merged.get(name);
+                    if (existing != null) {
+                        Object visObj = existing.get("visibility");
+                        List<String> vis = (visObj instanceof List<?> v)
+                            ? new ArrayList<>((List<String>) v) : new ArrayList<>();
+                        if (!vis.contains("ui")) vis.add("ui");
+                        existing.put("visibility", vis);
+                    } else {
+                        Map<String, Object> entry = new LinkedHashMap<>();
+                        entry.put("name",        name);
+                        entry.put("description", "[internal] " + widgetType + " widget UI 工具，由前端 ToolProxy 调用，不暴露给 LLM。");
+                        entry.put("parameters",  Map.of(
+                            "type",       "object",
+                            "properties", Map.of(),
+                            "required",   List.of()
+                        ));
+                        entry.put("visibility", List.of("ui"));
+                        entry.put("scope",      widgetScope(appId, widgetType, "always"));
+                        merged.put(name, entry);
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    private static Map<String, Object> widgetScope(String appId, String widgetType, String visibleWhen) {
+        Map<String, Object> s = new LinkedHashMap<>();
+        s.put("level",        "widget");
+        s.put("owner_app",    appId);
+        s.put("owner_widget", widgetType);
+        s.put("visible_when", visibleWhen);
+        return s;
     }
 
     /** 为每个 tool 补齐 visibility + scope 元字段（不覆盖已显式声明的字段）。 */

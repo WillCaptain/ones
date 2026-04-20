@@ -530,6 +530,57 @@ public class AppRegistry {
     }
 
     /**
+     * Phase 3：从 {@code /api/tools} 返回的 skills 列表中提取带 widget-level scope 的工具，
+     * 直接填充 {@link #toolIndex} 与 {@link #widgetCanvasToolsIndex}。
+     *
+     * <p>返回已从 {@code /api/tools} 贡献了 canvas 工具的 widget type 集合 —— 之后遍历
+     * widget manifest 时若该 widgetType 已在集合里，则跳过 {@code canvas_skill.tools} 读取
+     * （{@code /api/tools} 为权威来源；widget manifest 同名字段作为遗留/回退）。
+     */
+    @SuppressWarnings("unchecked")
+    private Set<String> indexWidgetScopedFromTools(List<Map<String, Object>> skills, AppRegistration reg) {
+        Set<String> widgetsWithCanvasTools = new HashSet<>();
+        Map<String, List<Map<String, Object>>> perWidget = new LinkedHashMap<>();
+        for (Map<String, Object> skill : skills) {
+            Object scopeObj = skill.get("scope");
+            if (!(scopeObj instanceof Map<?, ?> sMap)) continue;
+            Map<String, Object> scope = (Map<String, Object>) sMap;
+            if (!"widget".equals(scope.get("level"))) continue;
+            Object ownerWidget = scope.get("owner_widget");
+            if (ownerWidget == null) continue;
+            String wt = ownerWidget.toString();
+
+            Object visObj = skill.get("visibility");
+            List<?> vis = (visObj instanceof List<?>) ? (List<?>) visObj : List.of();
+
+            if (vis.contains("ui")) {
+                Object name = skill.get("name");
+                if (name != null) {
+                    toolIndex.put(name.toString(), reg);
+                    log.debug("Registered widget-scoped UI tool from /api/tools: {} → {}", name, wt);
+                }
+            }
+
+            boolean llmCanvas = vis.contains("llm")
+                && ("canvas_open".equals(scope.get("visible_when"))
+                    || scope.get("visible_when") == null);
+            if (llmCanvas) {
+                Map<String, Object> toolDef = new LinkedHashMap<>(skill);
+                toolDef.remove("visibility");
+                toolDef.remove("scope");
+                perWidget.computeIfAbsent(wt, k -> new ArrayList<>()).add(toolDef);
+                widgetsWithCanvasTools.add(wt);
+            }
+        }
+        for (Map.Entry<String, List<Map<String, Object>>> e : perWidget.entrySet()) {
+            widgetCanvasToolsIndex.put(e.getKey(), e.getValue());
+            log.debug("Registered {} widget-scoped canvas tools from /api/tools for: {}",
+                    e.getValue().size(), e.getKey());
+        }
+        return widgetsWithCanvasTools;
+    }
+
+    /**
      * 返回 widget 级 {@code scope} 对象（可能为 {@code null}）。
      * 结构：{@code {"tools_allow":[...],"tools_deny":[...],"forbid_execution":bool}}。
      */
@@ -788,6 +839,8 @@ public class AppRegistry {
             indexSkillKind(skill);
         }
 
+        Set<String> preloadedCanvas = indexWidgetScopedFromTools(skills, reg);
+
         for (Map<String, Object> widget : widgets) {
             Object type = widget.get("type");
 
@@ -809,13 +862,15 @@ public class AppRegistry {
                 widgetTitleIndex.put(type.toString(), title);
             }
 
-            Object canvasSkill = widget.get("canvas_skill");
-            if (type != null && canvasSkill instanceof Map<?, ?> csMap) {
-                Object toolsNode = csMap.get("tools");
-                if (toolsNode instanceof List<?> toolsList) {
-                    @SuppressWarnings("unchecked")
-                    List<Map<String, Object>> tools = (List<Map<String, Object>>) toolsList;
-                    widgetCanvasToolsIndex.put(type.toString(), tools);
+            if (type != null && !preloadedCanvas.contains(type.toString())) {
+                Object canvasSkill = widget.get("canvas_skill");
+                if (canvasSkill instanceof Map<?, ?> csMap) {
+                    Object toolsNode = csMap.get("tools");
+                    if (toolsNode instanceof List<?> toolsList) {
+                        @SuppressWarnings("unchecked")
+                        List<Map<String, Object>> tools = (List<Map<String, Object>>) toolsList;
+                        widgetCanvasToolsIndex.put(type.toString(), tools);
+                    }
                 }
             }
 
@@ -882,6 +937,8 @@ public class AppRegistry {
             indexSkillKind(skill);
         }
 
+        Set<String> preloadedCanvas = indexWidgetScopedFromTools(skills, reg);
+
         for (Map<String, Object> widget : widgets) {
             Object type = widget.get("type");
 
@@ -906,15 +963,18 @@ public class AppRegistry {
                 widgetTitleIndex.put(type.toString(), title);
             }
 
-            // widget_type → canvas_skill.tools（canvas 模式下追加到 LLM 工具列表）
-            Object canvasSkill = widget.get("canvas_skill");
-            if (type != null && canvasSkill instanceof Map<?, ?> csMap) {
-                Object toolsNode = csMap.get("tools");
-                if (toolsNode instanceof List<?> toolsList) {
-                    @SuppressWarnings("unchecked")
-                    List<Map<String, Object>> tools = (List<Map<String, Object>>) toolsList;
-                    widgetCanvasToolsIndex.put(type.toString(), tools);
-                    log.debug("Registered {} canvas tools for widget: {}", tools.size(), type);
+            // widget_type → canvas_skill.tools（Phase 3：仅当 /api/tools 未贡献时回退）
+            if (type != null && !preloadedCanvas.contains(type.toString())) {
+                Object canvasSkill = widget.get("canvas_skill");
+                if (canvasSkill instanceof Map<?, ?> csMap) {
+                    Object toolsNode = csMap.get("tools");
+                    if (toolsNode instanceof List<?> toolsList) {
+                        @SuppressWarnings("unchecked")
+                        List<Map<String, Object>> tools = (List<Map<String, Object>>) toolsList;
+                        widgetCanvasToolsIndex.put(type.toString(), tools);
+                        log.debug("Registered {} canvas tools from widget manifest (fallback): {}",
+                                tools.size(), type);
+                    }
                 }
             }
 
