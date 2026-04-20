@@ -319,21 +319,24 @@ public class WorldOneChatController {
         GenericAgentLoop loop = agentStore.get(agentSessionId);
 
         // 若 UiSession 处于 Canvas 模式，确保 loop 的 activeWidgetType 已恢复
-        // （服务重启后 loop 是全新的，activeWidgetType 默认为 null）
-        if (ui != null && ui.hasCanvas()) {
+        // （服务重启后 loop 是全新的，activeWidgetType 默认为 null）。
+        // 硬护栏：main session 永远是 chat-mode，不得恢复任何 canvas 状态。
+        if (ui != null && ui.hasCanvas() && !"main".equals(ui.id())) {
             loop.setActiveWidgetType(ui.widgetType());
-            // 恢复 workspaceId（= canvasSessionId = worldId）
             if (ui.canvasSessionId() != null) {
                 loop.setWorkspaceId(ui.canvasSessionId());
             }
-            // 恢复 workspaceTitle from session name (task session name IS the workspace title)
             if (ui.name() != null && !ui.name().isBlank()) {
                 loop.setWorkspaceTitle(ui.name());
             }
         }
+        // 每轮请求都同步当前 active_view（可空），供 widget/view 级 prompt/tool 装配
+        loop.setActiveView(wvViewId);
 
-        // 若非 conversation session 且 sessionEntryPrompt 尚未注入，重启后恢复（Layer 2）
-        if (ui != null && !ui.isConversation() && loop.getSessionEntryPrompt() == null) {
+        // 若非 conversation session 且 sessionEntryPrompt 尚未注入，重启后恢复（Layer 2）。
+        // 同样不对 main session 注入 session entry prompt。
+        if (ui != null && !ui.isConversation() && !"main".equals(ui.id())
+                && loop.getSessionEntryPrompt() == null) {
             String entryPrompt = registry.sessionEntryPrompt(ui.type());
             if (entryPrompt != null) {
                 loop.setSessionEntryPrompt(entryPrompt);
@@ -359,6 +362,10 @@ public class WorldOneChatController {
 
                 // 2. 调用 LLM（回调模式，事件实时推送）
                 String[] currentUiId = { finalUiSessionId };
+
+                // Anthropic-style Skills：host 不再做关键词召回。
+                // GenericAgentLoop 在 chat() 内部按当前 UI 位置构造 Available Skills catalog 注入
+                // system prompt，并暴露 load_skill meta-tool；主 LLM 自己决定是否激活 skill。
 
                 loop.chat(finalMessage, finalUiHints, event -> {
                     ChatEvent toSend = event;
@@ -421,12 +428,12 @@ public class WorldOneChatController {
     private ChatEvent enrichSessionEvent(ChatEvent e) {
         try {
             JsonNode n              = JSON.readTree(e.content());
-            String agentId          = n.path("agent_session_id").asText("main");
             String name             = n.path("name").asText("新任务");
             String type             = n.path("type").asText("task");
             String welcomeMsg       = n.path("welcome_message").asText("");
             String canvasSessionId  = n.path("canvas_session_id").asText("");
             String appId            = n.path("app_id").asText("");
+            String widgetType       = n.path("widget_type").asText("");
 
             UiSession ui;
             if ("app".equals(type) && !appId.isBlank()) {
@@ -446,6 +453,39 @@ public class WorldOneChatController {
                     // 每个新 task/world session 都分配独立 agent session，避免与 main 或其他世界共享 LLM 上下文
                     String freshAgentId = agentStore.newSession();
                     ui = uiStore.create(type, name, freshAgentId);
+                }
+            }
+
+            // ── 关键：canvas 字段在【新 task loop】上显式设置，
+            //    而不是在当前（触发事件的）loop 上。之前 GenericAgentLoop.extractEvents
+            //    直接写自身字段，导致 main loop 被污染成"伪 canvas"。─────────────────
+            if (!"main".equals(ui.id())) {
+                GenericAgentLoop taskLoop = agentStore.get(ui.agentSessionId());
+                if (taskLoop != null) {
+                    if (!widgetType.isBlank()) {
+                        taskLoop.setActiveWidgetType(widgetType);
+                    }
+                    if (!canvasSessionId.isBlank()) {
+                        taskLoop.setWorkspaceId(canvasSessionId);
+                    }
+                    if (!name.isBlank()) {
+                        taskLoop.setWorkspaceTitle(name);
+                    }
+                    if (!welcomeMsg.isBlank() && taskLoop.getSessionEntryPrompt() == null) {
+                        taskLoop.setSessionEntryPrompt(welcomeMsg);
+                    } else if (welcomeMsg.isBlank() && taskLoop.getSessionEntryPrompt() == null) {
+                        String fallback = registry.sessionEntryPrompt(type);
+                        if (fallback != null) taskLoop.setSessionEntryPrompt(fallback);
+                    }
+                }
+
+                // 同步 UiSession 的 canvas 字段，下次 chat 路由到此 session 能恢复
+                if (!widgetType.isBlank()) {
+                    uiStore.updateCanvas(
+                        ui.id(),
+                        widgetType,
+                        canvasSessionId.isBlank() ? null : canvasSessionId
+                    );
                 }
             }
 
@@ -539,11 +579,12 @@ public class WorldOneChatController {
                 AppRegistration app = reg.findAppForTool("memory_workspace_join");
                 if (app == null) return;
                 String url = app.toolUrl("memory_workspace_join");
+                Map<String, Object> args = new java.util.LinkedHashMap<>();
+                args.put("workspace_id", workspaceId);
+                args.put("workspace_title", workspaceTitle != null ? workspaceTitle : workspaceId);
+                args = reg.injectEnvVars(app.appId(), args);
                 Map<String, Object> body = Map.of(
-                    "args", Map.of(
-                        "workspace_id",    workspaceId,
-                        "workspace_title", workspaceTitle != null ? workspaceTitle : workspaceId
-                    ),
+                    "args", args,
                     "_context", Map.of(
                         "userId",      userId,
                         "workspaceId", workspaceId,

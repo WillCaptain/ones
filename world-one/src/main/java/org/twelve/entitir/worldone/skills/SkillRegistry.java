@@ -26,8 +26,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * （Phase 4 之后该端点专门承载 Skill Playbook 索引）；端点不存在 / 返回空数组则
  * 静默跳过，维持兼容 —— 尚未定义 playbook 的 app 不影响 host 启动。
  *
- * <p>当前仅承载索引与 playbook 文本缓存；召回逻辑在 {@link SkillRecaller}，
- * 执行逻辑在 {@link SkillExecutor}。
+ * <p>Anthropic Skills 风格（2025-10 spec）：只承载 skill 索引（{@code name + description +
+ * allowed_tools + 位置 scope}）和 playbook 懒加载缓存；召回由 <b>主 LLM 自己完成</b>
+ * （{@code GenericAgentLoop} 把 {@link #visibleSkills} 的结果注入 system prompt，
+ * 主 LLM 通过 {@code load_skill} meta-tool 激活），本类不做关键词匹配也不维护独立 Loop A。
  */
 @Component
 public class SkillRegistry {
@@ -80,29 +82,35 @@ public class SkillRegistry {
         refreshAll();
     }
 
-    @SuppressWarnings("unchecked")
+    /**
+     * 解析 Anthropic-风格的 skill 索引。旧字段 {@code id / triggers / embedding_hint} 已去除，
+     * 兼容性读取：若条目仍使用 {@code id}，将其作为 {@code name} 的兜底来源。
+     */
     private List<SkillDefinition> parseIndex(String appId, String body) throws Exception {
         JsonNode root = JSON.readTree(body);
         JsonNode arr = root.isArray() ? root : root.path("skills");
         if (!arr.isArray()) return List.of();
         List<SkillDefinition> out = new ArrayList<>();
         for (JsonNode n : arr) {
-            String id    = n.path("id").asText(null);
-            if (id == null || id.isBlank()) continue;
-            String level = n.path("level").asText(SkillDefinition.LEVEL_APP);
-            String name  = n.path("name").asText(id);
-            String desc  = n.path("description").asText("");
-            String hint  = n.path("embedding_hint").asText("");
+            String name = n.path("name").asText(null);
+            if (name == null || name.isBlank()) {
+                // 兼容旧索引可能仍回传 id
+                name = n.path("id").asText(null);
+            }
+            if (name == null || name.isBlank()) continue;
+
+            String level       = n.path("level").asText(SkillDefinition.LEVEL_APP);
+            String desc        = n.path("description").asText("");
             String ownerWidget = n.path("owner_widget").asText(null);
             String ownerView   = n.path("owner_view").asText(null);
-            String playbookUrl = n.path("playbook_url").asText("/api/skills/" + id + "/playbook");
+            String playbookUrl = n.path("playbook_url")
+                    .asText("/api/skills/" + name + "/playbook");
+            List<String> allowed = toStringList(n.path("allowed_tools"));
 
-            List<String> triggers = toStringList(n.path("triggers"));
-            List<String> tools    = toStringList(n.path("tools"));
-
-            out.add(new SkillDefinition(id, appId, level,
+            out.add(new SkillDefinition(
+                    name, appId, level,
                     blankToNull(ownerWidget), blankToNull(ownerView),
-                    name, desc, triggers, hint, tools, playbookUrl));
+                    desc, allowed, playbookUrl));
         }
         return out;
     }
@@ -130,12 +138,65 @@ public class SkillRegistry {
         return List.copyOf(indexByApp.getOrDefault(appId, List.of()));
     }
 
-    /** 按 id 定位。返回 Optional 避免 NPE。 */
-    public Optional<SkillDefinition> find(String appId, String skillId) {
+    /** 按 name 定位。返回 Optional 避免 NPE。 */
+    public Optional<SkillDefinition> find(String appId, String skillName) {
         for (SkillDefinition s : indexByApp.getOrDefault(appId, List.of())) {
-            if (Objects.equals(s.id(), skillId)) return Optional.of(s);
+            if (Objects.equals(s.name(), skillName)) return Optional.of(s);
         }
         return Optional.empty();
+    }
+
+    /**
+     * 跨所有 app 按 name 查找一个 skill（当前位置可见的那个）。
+     * 同名冲突时取第一个命中 —— Anthropic 规范要求 name 在生态内唯一，冲突视作数据问题。
+     */
+    public Optional<SkillDefinition> findAnywhere(String skillName) {
+        for (List<SkillDefinition> list : indexByApp.values()) {
+            for (SkillDefinition s : list) {
+                if (Objects.equals(s.name(), skillName)) return Optional.of(s);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * 返回当前 UI 位置下对主 LLM 可见的 skill 集合（用于注入 system prompt 的 Available Skills 段）。
+     *
+     * <p>可见性规则（比召回更宽松，只做"位置过滤"，语义判断交给主 LLM）：
+     * <ul>
+     *   <li>{@code level=universal}：任何位置都可见</li>
+     *   <li>{@code level=app}：{@code activeAppIds} 为空（纯 chat）或包含该 app</li>
+     *   <li>{@code level=widget}：当前在 widget 内且 {@code owner_widget} 匹配</li>
+     *   <li>{@code level=view}：当前在 view 内且 {@code owner_widget} + {@code owner_view} 都匹配</li>
+     * </ul>
+     * 这是 Anthropic 扁平 catalog 的"位置分层扩展"，目的是让 skill 数量大时 catalog 不爆炸。
+     */
+    public List<SkillDefinition> visibleSkills(
+            String widgetType, String viewId, Set<String> activeAppIds) {
+        Set<String> apps = activeAppIds == null ? Set.of() : activeAppIds;
+        List<SkillDefinition> out = new ArrayList<>();
+        for (SkillDefinition s : allSkills()) {
+            if (isVisibleAt(s, widgetType, viewId, apps)) out.add(s);
+        }
+        return out;
+    }
+
+    private static boolean isVisibleAt(
+            SkillDefinition s, String widgetType, String viewId, Set<String> activeAppIds) {
+        String lvl = s.level();
+        if (SkillDefinition.LEVEL_UNIVERSAL.equals(lvl)) return true;
+        if (SkillDefinition.LEVEL_APP.equals(lvl)) {
+            return activeAppIds.isEmpty() || activeAppIds.contains(s.appId());
+        }
+        if (SkillDefinition.LEVEL_WIDGET.equals(lvl)) {
+            return widgetType != null && Objects.equals(s.ownerWidget(), widgetType);
+        }
+        if (SkillDefinition.LEVEL_VIEW.equals(lvl)) {
+            return widgetType != null && viewId != null
+                    && Objects.equals(s.ownerWidget(), widgetType)
+                    && Objects.equals(s.ownerView(), viewId);
+        }
+        return false;
     }
 
     // ── Playbook 加载 ─────────────────────────────────────────────────────────
@@ -145,7 +206,7 @@ public class SkillRegistry {
      * {@code /api/skills/{id}/playbook}。
      */
     public String loadPlaybook(SkillDefinition skill) {
-        String cacheKey = skill.appId() + "::" + skill.id();
+        String cacheKey = skill.appId() + "::" + skill.name();
         String cached = playbookCache.get(cacheKey);
         if (cached != null) return cached;
 
@@ -153,7 +214,7 @@ public class SkillRegistry {
         if (app == null) return "";
         String url = app.baseUrl() + (skill.playbookUrl() != null && !skill.playbookUrl().isBlank()
                 ? skill.playbookUrl()
-                : "/api/skills/" + skill.id() + "/playbook");
+                : "/api/skills/" + skill.name() + "/playbook");
         try {
             String body = httpGet(url);
             playbookCache.put(cacheKey, body);

@@ -3,6 +3,7 @@ package org.twelve.entitir.worldone;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.twelve.entitir.ontology.llm.LLMConfig;
+import org.twelve.entitir.worldone.skills.SkillRegistry;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,6 +28,12 @@ public class WorldOneSessionStore {
 
     @Autowired
     private MessageHistoryStore messageHistory;
+
+    @Autowired
+    private SkillRegistry skillRegistry;
+
+    @Autowired
+    private DebugFlags debugFlags;
 
     private final Map<String, GenericAgentLoop> sessions = new ConcurrentHashMap<>();
 
@@ -106,6 +113,6 @@ public class WorldOneSessionStore {
                 .model(configStore.model())
                 .timeoutSeconds(configStore.timeout())
                 .build();
-        return new GenericAgentLoop(sessionId, userId, cfg, registry);
+        return new GenericAgentLoop(sessionId, userId, cfg, registry, skillRegistry, debugFlags);
     }
 }
