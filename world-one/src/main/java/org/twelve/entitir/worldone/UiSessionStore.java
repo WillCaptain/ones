@@ -30,6 +30,16 @@ public class UiSessionStore {
             repo.save(new UiSessionEntity(
                     "main", "conversation", "World One",
                     null, "main", Instant.now()));
+        } else {
+            // main 永远是 chat-mode，不应持有任何 canvas 状态。
+            // 历史版本里 extractEvents 会错误地把 canvas 写到 main，这里做一次性清洗。
+            repo.findById("main").ifPresent(e -> {
+                if (e.getWidgetType() != null || e.getCanvasSessionId() != null) {
+                    e.setWidgetType(null);
+                    e.setCanvasSessionId(null);
+                    repo.save(e);
+                }
+            });
         }
     }
 
@@ -142,6 +152,20 @@ public class UiSessionStore {
             e.setCanvasSessionId(canvasSessionId);
             repo.save(e);
         });
+    }
+
+    /** 重命名 session。主 session 不可改名；空字符串视为非法。 */
+    @Transactional
+    public boolean rename(String id, String newName) {
+        if ("main".equals(id)) return false;
+        if (newName == null) return false;
+        String trimmed = newName.trim();
+        if (trimmed.isEmpty()) return false;
+        return repo.findById(id).map(e -> {
+            e.setName(trimmed);
+            repo.save(e);
+            return true;
+        }).orElse(false);
     }
 
     /** 更新 session 类型（如 chat 流程将 app 降级为 task）。主 session 不可更改。 */

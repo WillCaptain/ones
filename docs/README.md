@@ -19,6 +19,12 @@
 |------|------|
 | [world-one-design.md](./world-one-design.md) | World One 应用层设计：布局、Session 面板、Chat/Canvas 模式切换 |
 | [world-one-skills.md](./world-one-skills.md) | World One Skill 层：AIP 层逻辑、阶段状态机、工具集 |
+| [../world-one/WIDGETS.md](../world-one/WIDGETS.md) | World One 系统级 Widget：`sys.*` 内置能力与使用约定 |
+| [world-event-executor-e2e.md](./world-event-executor-e2e.md) | World 运行时端到端设计：事件链路、开放式 executor 协议、resilient action widget 配置 |
+| [world-executor-protocol.md](./world-executor-protocol.md) | Executor 协议细化：注册、发现、匹配、事件交接、approval / arg flow JSON 契约 |
+| [world-executor-manual-test.md](./world-executor-manual-test.md) | Executor 链路手工测试：approval、arg widget、resume action、terminal flowback 校验清单 |
+| [world-runtime-event-protocol.md](./world-runtime-event-protocol.md) | Runtime Event 协议：统一事件 envelope、列表查询、SSE 流、cursor 与五类 payload |
+| [shared-autonomous-ontology-exploration.md](./shared-autonomous-ontology-exploration.md) | 场景 3 共享探索机制：decision/action hint、runtime completion、VirtualSet expression 严格构造与复用边界 |
 
 ## Memory One
 
@@ -26,6 +32,7 @@
 |------|------|
 | [memory-one/docs/memory-design.md](../memory-one/docs/memory-design.md) | 记忆设计：记忆模型、加载策略、整合算法 |
 | [memory-one/docs/MANUAL-TEST-GUIDE.md](../memory-one/docs/MANUAL-TEST-GUIDE.md) | 手动测试指南 |
+| [../memory-one/WIDGETS.md](../memory-one/WIDGETS.md) | memory-one Widget 清单：`memory-manager` 与系统级 `sys.*` 用法 |
 
 ---
 

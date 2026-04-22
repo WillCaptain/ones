@@ -14,6 +14,7 @@ public record AppRegistration(
     String name,
     String baseUrl,
     String systemPromptContribution,
+    List<Map<String, Object>> promptContributions,
     List<Map<String, Object>> skills,
     List<Map<String, Object>> widgets
 ) {

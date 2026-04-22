@@ -9,7 +9,7 @@
 ## 零、核心设计原则
 
 1. **world-one 是唯一的导航控制器**：widget 通过 canvas 指令申请导航，world-one 决定如何执行。
-2. **Session 不嵌套**：一个 session 就是一个独立的 LLM 上下文，canvas widget 是视图层，不产生新 session。
+2. **Session 不嵌套**：一个 session 就是一个独立的 LLM 上下文；canvas widget 是当前 session 的视图层，不产生新 session。session 的创建/归一仅由 skill 的 `session` 块（`aipp-protocol.md` §3.1.1）决定；**非 main session 禁止再派生 session**，已在 session 内再进入"创建新 session 语义"的 skill，归一为视图覆盖。
 3. **所有路由基于 widget_type 字符串**：AIPP 中不存在 URL 跳转，world-one 解析 widget_type 找到渲染器。
 4. **系统 chrome 由 world-one 生成**：后退按钮、关闭按钮、modal 边框均由 world-one 产生，widget 只提供内容区。
 
@@ -51,7 +51,17 @@ world-one 不预设“每个 app 只能 1 个”或“必须 N 个”。
 - memory-one 常见单实例（`app_id=memory-one`）
 - world-entitir 常见多实例（`app_id=world` + `session_id=HR|EAI|...`）
 
-> App Session 不进入 Task Panel；Task Panel 只展示 task/event。
+> App Session 不进入 Task Panel；Task Panel 展示 task / event session。
+
+### Widget 激活态的上下文与能力裁剪（不是新 session）
+
+Widget 打开不会新建 session。但 widget 激活期间，Host 会按 `aipp-protocol.md` §3.2.1 Widget Context & Scope 向当前 session 的 system prompt 追加 `widget.system_prompt`，并按 `widget.scope` 裁剪本轮可见工具；`views[].system_prompt` + `views[].scope` 进一步按前端传来的 `active_view` 做 tab 级细化。
+
+**关键特性**：
+
+- **同一 session、同一 history**：widget 打开/关闭、view 切换不破坏对话上下文
+- **能力随视图动**：tab 切换 → 本轮 tool list 自动窄化；"当前 tab 无关的工具"对 LLM 不可见，避免误调
+- **执行禁令可选**：widget/view 可声明 `forbid_execution: true`，此时 LLM 看不到任何 `kind=execution` 工具；若用户请求执行，widget 的 `system_prompt` 应给出引导话术（如"请回到主会话执行"）
 
 ---
 
@@ -211,7 +221,8 @@ LLM 或用户发起长耗时操作
 | `sys.confirm` | Yes/No 或 OK/Cancel | 危险操作确认，`danger:true` 时红色按钮 |
 | `sys.alert` | 仅 OK | 信息通知，关闭时可选发 chat 消息 |
 | `sys.prompt` | 输入框 + OK/Cancel | 获取用户文本输入，提交调用指定 tool |
-| `sys.choice` | 多选项列表 | 从选项中选一项，每项对应 tool 或消息 |
+| `sys.selection` | 选项列表（推荐） | 从选项中选一项，每项对应 tool 或消息 |
+| `sys.choice` | 选项列表（兼容别名） | 旧字段，行为与 `sys.selection` 相同 |
 | `sys.progress` | spinner 或进度条 | 后台工具执行进度，支持 poll_tool 轮询 |
 
 > **保留前缀**：AIPP 应用注册 widget 时不得使用 `sys.` 前缀。

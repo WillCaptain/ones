@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.twelve.worldone</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/imac/Documents/code/github/ones/world-one/deploy/launchd-run.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/imac/Documents/code/github/ones/world-one</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/imac/Documents/code/github/ones/world-one/deploy/server.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/imac/Documents/code/github/ones/world-one/deploy/server.log</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>ProcessType</key>
+    <string>Interactive</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

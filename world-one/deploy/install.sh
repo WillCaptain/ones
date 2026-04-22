@@ -9,7 +9,7 @@ cd ../aip      && mvn install -q -DskipTests
 cd ../worldone
 
 echo "=== [2/3] 打包 worldone ==="
-mvn package -q -DskipTests
+mvn clean package -q -DskipTests
 
 echo "=== [3/3] 复制产物到 deploy/ ==="
 cp target/worldone-1.0-SNAPSHOT.jar deploy/worldone.jar

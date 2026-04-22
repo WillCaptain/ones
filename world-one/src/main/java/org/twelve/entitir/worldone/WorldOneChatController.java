@@ -186,6 +186,18 @@ public class WorldOneChatController {
             : ResponseEntity.badRequest().body(Map.of("ok", false, "reason", "无法恢复该 session"));
     }
 
+    @PatchMapping("/sessions/{id}/rename")
+    public ResponseEntity<Map<String, Object>> renameSession(
+            @PathVariable("id") String id,
+            @RequestBody Map<String, Object> body) {
+        Object raw = body == null ? null : body.get("name");
+        String name = raw == null ? null : String.valueOf(raw);
+        boolean ok = uiStore.rename(id, name);
+        return ok
+            ? ResponseEntity.ok(Map.of("ok", true))
+            : ResponseEntity.badRequest().body(Map.of("ok", false, "reason", "无法重命名该 session"));
+    }
+
     // ── Apps 启动面板 ─────────────────────────────────────────────────────────
 
     /**

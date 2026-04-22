@@ -5,7 +5,9 @@ import org.springframework.web.bind.annotation.*;
 import org.twelve.entitir.aip.LLMCaller;
 import org.twelve.entitir.ontology.llm.LLMConfig;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -34,8 +36,9 @@ public class WorldOneSettingsController {
         String baseUrl = str(body, "baseUrl");
         String model   = str(body, "model");
         int    timeout = intVal(body, "timeoutSeconds");
+        List<Map<String, Object>> envVars = mapList(body.get("envVars"));
 
-        configStore.save(apiKey, baseUrl, model, timeout);
+        configStore.save(apiKey, baseUrl, model, timeout, envVars);
         sessionStore.invalidateAll(); // 旧 loop 使用旧 config，需要重建
 
         return Map.of("ok", true, "message", "配置已保存");
@@ -74,5 +77,17 @@ public class WorldOneSettingsController {
         Object v = m.get(k);
         if (v instanceof Number n) return n.intValue();
         try { return Integer.parseInt(String.valueOf(v)); } catch (Exception e) { return 0; }
+    }
+
+    private static List<Map<String, Object>> mapList(Object raw) {
+        if (!(raw instanceof List<?> list)) return List.of();
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> row)) continue;
+            Map<String, Object> copy = new LinkedHashMap<>();
+            row.forEach((k, v) -> copy.put(String.valueOf(k), v));
+            out.add(copy);
+        }
+        return out;
     }
 }

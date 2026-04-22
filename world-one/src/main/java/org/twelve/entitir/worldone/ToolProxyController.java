@@ -6,12 +6,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -44,7 +50,12 @@ public class ToolProxyController {
         try {
             AppRegistration app = registry.findAppForTool(toolName);
             String url     = app.toolUrl(toolName);
-            String reqBody = JSON.writeValueAsString(body);  // 原样转发 {args:{...}}
+            Map<String, Object> outBody = new LinkedHashMap<>(body == null ? Map.of() : body);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> args = outBody.get("args") instanceof Map<?, ?> m
+                    ? (Map<String, Object>) m : Map.of();
+            outBody.put("args", registry.injectEnvVars(app.appId(), args));
+            String reqBody = JSON.writeValueAsString(outBody);
 
             HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                     .header("Content-Type", "application/json")
@@ -102,6 +113,11 @@ public class ToolProxyController {
         return forwardToWorldEntitir("/api/code-hover", body);
     }
 
+    @PostMapping("/code-members")
+    public ResponseEntity<?> proxyCodeMembers(@RequestBody Map<String, Object> body) {
+        return forwardToWorldEntitir("/api/code-members", body);
+    }
+
     @PostMapping("/infer-action-type")
     public ResponseEntity<?> proxyInferActionType(@RequestBody Map<String, Object> body) {
         return forwardToWorldEntitir("/api/infer-action-type", body);
@@ -151,6 +167,127 @@ public class ToolProxyController {
         }
     }
 
+    @GetMapping("/worlds/{worldId}/runtime-events")
+    public ResponseEntity<?> proxyRuntimeEvents(
+            @PathVariable("worldId") String worldId,
+            @RequestParam(name = "env", required = false) String env,
+            @RequestParam(name = "cursor", required = false) String cursor,
+            @RequestParam(name = "limit", required = false) String limit,
+            @RequestParam(name = "event_type", required = false) String eventType,
+            @RequestParam(name = "need_user_action", required = false) String needUserAction
+    ) {
+        try {
+            AppRegistration app = registry.findAppForTool("world_register_action");
+            Map<String, String> query = new LinkedHashMap<>();
+            putIfNotBlank(query, "env", env);
+            putIfNotBlank(query, "cursor", cursor);
+            putIfNotBlank(query, "limit", limit);
+            putIfNotBlank(query, "event_type", eventType);
+            putIfNotBlank(query, "need_user_action", needUserAction);
+            String url = buildRuntimeEventsUrl(app.baseUrl(), worldId, query, false);
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofSeconds(20))
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            JsonNode result = JSON.readTree(resp.body());
+            return ResponseEntity.status(resp.statusCode())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(result);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping(value = "/worlds/{worldId}/runtime-events/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter proxyRuntimeEventsStream(
+            @PathVariable("worldId") String worldId,
+            @RequestParam(name = "env", required = false) String env,
+            @RequestParam(name = "cursor", required = false) String cursor,
+            @RequestParam(name = "event_type", required = false) String eventType,
+            @RequestParam(name = "need_user_action", required = false) String needUserAction
+    ) {
+        SseEmitter emitter = new SseEmitter(0L);
+        try {
+            AppRegistration app = registry.findAppForTool("world_register_action");
+            Map<String, String> query = new LinkedHashMap<>();
+            putIfNotBlank(query, "env", env);
+            putIfNotBlank(query, "cursor", cursor);
+            putIfNotBlank(query, "event_type", eventType);
+            putIfNotBlank(query, "need_user_action", needUserAction);
+            String url = buildRuntimeEventsUrl(app.baseUrl(), worldId, query, true);
+
+            Thread.startVirtualThread(() -> {
+                try {
+                    HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                            .header("Accept", "text/event-stream")
+                            .timeout(Duration.ofMinutes(30))
+                            .GET()
+                            .build();
+                    HttpResponse<java.io.InputStream> resp =
+                            http.send(req, HttpResponse.BodyHandlers.ofInputStream());
+                    try (BufferedReader br = new BufferedReader(new InputStreamReader(
+                            resp.body(), StandardCharsets.UTF_8))) {
+                        String line;
+                        String eventId = null;
+                        String eventName = null;
+                        while ((line = br.readLine()) != null) {
+                            if (line.startsWith("id:")) {
+                                eventId = line.substring(3).trim();
+                            } else if (line.startsWith("event:")) {
+                                eventName = line.substring(6).trim();
+                            } else if (line.startsWith("data:")) {
+                                SseEmitter.SseEventBuilder b = SseEmitter.event()
+                                        .data(line.substring(5).trim());
+                                if (eventId != null && !eventId.isBlank()) b.id(eventId);
+                                if (eventName != null && !eventName.isBlank()) b.name(eventName);
+                                emitter.send(b);
+                            } else if (line.isBlank()) {
+                                eventId = null;
+                                eventName = null;
+                            }
+                        }
+                    }
+                    emitter.complete();
+                } catch (Exception e) {
+                    emitter.completeWithError(e);
+                }
+            });
+        } catch (Exception e) {
+            emitter.completeWithError(e);
+        }
+        return emitter;
+    }
+
+    /** PATCH /api/proxy/worlds/{sessionId}/rename — 转发到 world-entitir 的世界重命名接口。 */
+    @PatchMapping("/worlds/{sessionId}/rename")
+    public ResponseEntity<?> renameWorld(
+            @PathVariable("sessionId") String sessionId,
+            @RequestBody Map<String, Object> body) {
+        try {
+            AppRegistration app = registry.findAppForTool("world_register_action");
+            String url = app.baseUrl() + "/api/worlds/"
+                    + URLEncoder.encode(sessionId, StandardCharsets.UTF_8) + "/rename";
+            String reqBody = JSON.writeValueAsString(body == null ? Map.of() : body);
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(15))
+                    .method("PATCH", HttpRequest.BodyPublishers.ofString(reqBody))
+                    .build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            JsonNode result = JSON.readTree(resp.body());
+            return ResponseEntity.status(resp.statusCode())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(result);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     private ResponseEntity<?> forwardToWorldEntitir(String path, Map<String, Object> body) {
         try {
             AppRegistration app = registry.findAppForTool("world_register_action");
@@ -171,5 +308,30 @@ public class ToolProxyController {
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }
+    }
+
+    static String buildRuntimeEventsUrl(String baseUrl, String worldId, Map<String, String> query, boolean stream) {
+        StringBuilder sb = new StringBuilder(baseUrl)
+                .append("/api/worlds/")
+                .append(URLEncoder.encode(worldId, StandardCharsets.UTF_8))
+                .append("/runtime-events");
+        if (stream) sb.append("/stream");
+        if (query != null && !query.isEmpty()) {
+            boolean first = true;
+            for (Map.Entry<String, String> e : query.entrySet()) {
+                String v = e.getValue();
+                if (v == null || v.isBlank()) continue;
+                sb.append(first ? "?" : "&");
+                first = false;
+                sb.append(URLEncoder.encode(e.getKey(), StandardCharsets.UTF_8))
+                  .append("=")
+                  .append(URLEncoder.encode(v, StandardCharsets.UTF_8));
+            }
+        }
+        return sb.toString();
+    }
+
+    private static void putIfNotBlank(Map<String, String> query, String key, String value) {
+        if (value != null && !value.isBlank()) query.put(key, value);
     }
 }

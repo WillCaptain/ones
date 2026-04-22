@@ -26,7 +26,6 @@ import java.util.Map;
  */
 @RestController
 public class WorldoneSystemSkillsController {
-
     @Autowired AppRegistry registry;
 
     // ── Skill 执行端点（LLM → GenericAgentLoop → 此处）──────────────────────
@@ -41,10 +40,10 @@ public class WorldoneSystemSkillsController {
     public ResponseEntity<Map<String, Object>> appListView(
             @RequestBody(required = false) Map<String, Object> body) {
 
-        String query = extractQuery(body);
-        List<Map<String, Object>> apps = filterApps(registry.buildAppsManifests(), query);
+        java.util.Set<String> idSet = extractIdSet(body);
+        List<Map<String, Object>> apps = filterApps(registry.buildAppsManifests(), idSet);
 
-        String html   = buildHtmlPage(apps, query);
+        String html   = buildHtmlPage(apps, idSet);
         String height = computeHeight(apps.size());
 
         return ResponseEntity.ok(Map.of(
@@ -62,38 +61,50 @@ public class WorldoneSystemSkillsController {
      */
     @GetMapping(value = "/api/system/widgets/app-list", produces = MediaType.TEXT_HTML_VALUE)
     public String appListPage(
-            @RequestParam(name = "query", required = false, defaultValue = "") String query) {
+            @RequestParam(name = "ids", required = false) List<String> ids) {
 
-        List<Map<String, Object>> apps = filterApps(registry.buildAppsManifests(), query.trim());
-        return buildHtmlPage(apps, query.trim());
+        java.util.Set<String> idSet = (ids == null || ids.isEmpty())
+            ? null
+            : new java.util.LinkedHashSet<>(ids);
+        List<Map<String, Object>> apps = filterApps(registry.buildAppsManifests(), idSet);
+        return buildHtmlPage(apps, idSet);
     }
 
     // ── private helpers ──────────────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
-    private String extractQuery(Map<String, Object> body) {
-        if (body == null) return "";
-        Object args = body.get("args");
-        if (args instanceof Map<?, ?> m) {
-            Object q = ((Map<String, Object>) m).get("query");
-            if (q instanceof String s) return s.trim();
+    private java.util.Set<String> extractIdSet(Map<String, Object> body) {
+        if (body == null) return null;
+        Object ids = body.get("ids");
+        if (ids == null && body.get("args") instanceof Map<?, ?> a) {
+            ids = ((Map<String, Object>) a).get("ids");
         }
-        return "";
+        if (ids instanceof java.util.Collection<?> col) {
+            java.util.Set<String> out = new java.util.LinkedHashSet<>();
+            for (Object o : col) {
+                if (o != null) {
+                    String s = o.toString().trim();
+                    if (!s.isEmpty()) out.add(s);
+                }
+            }
+            return out.isEmpty() ? null : out;
+        }
+        return null;
     }
 
-    private List<Map<String, Object>> filterApps(List<Map<String, Object>> apps, String query) {
-        // 无 main_widget_type 的 app 不出现在列表（host 系统、纯工具 app 等）
+    private List<Map<String, Object>> filterApps(List<Map<String, Object>> apps, java.util.Set<String> idSet) {
+        // 默认隐藏无入口 widget 的工具型 app，但加载失败的 app 必须可见（用于告警与排障）。
         var visible = apps.stream()
-            .filter(a -> a.get("main_widget_type") != null)
-            .toList();
-        if (query == null || query.isBlank()) return visible;
-        String lq = query.toLowerCase();
-        return visible.stream()
+            // worldone 自身及其系统内置 app 不在应用列表展示
             .filter(a -> {
-                String name = str(a.getOrDefault("app_name", "")).toLowerCase();
-                String desc = str(a.getOrDefault("app_description", "")).toLowerCase();
-                return name.contains(lq) || desc.contains(lq);
+                String appId = str(a.getOrDefault("app_id", ""));
+                return !"worldone".equals(appId) && !"worldone-system".equals(appId);
             })
+            .filter(a -> a.get("main_widget_type") != null || !Boolean.TRUE.equals(a.get("load_ok")))
+            .toList();
+        if (idSet == null || idSet.isEmpty()) return visible;
+        return visible.stream()
+            .filter(a -> idSet.contains(str(a.getOrDefault("app_id", ""))))
             .toList();
     }
 
@@ -104,31 +115,35 @@ public class WorldoneSystemSkillsController {
     }
 
     /** 构建完整 HTML 页面（srcdoc 或直接 src 均可使用）。 */
-    private String buildHtmlPage(List<Map<String, Object>> apps, String query) {
+    private String buildHtmlPage(List<Map<String, Object>> apps, java.util.Set<String> idSet) {
         StringBuilder cards = new StringBuilder();
 
         if (apps.isEmpty()) {
-            String msg = (query == null || query.isBlank())
+            String msg = (idSet == null || idSet.isEmpty())
                 ? "暂无已注册应用"
-                : "没有匹配「" + escHtml(query) + "」的应用";
+                : "没有匹配的应用";
             cards.append("<div class=\"empty\">").append(msg).append("</div>");
         } else {
             for (Map<String, Object> app : apps) {
+                boolean loadOk    = !Boolean.FALSE.equals(app.get("load_ok"));
                 boolean active    = !Boolean.FALSE.equals(app.get("is_active"));
-                boolean clickable = active && app.get("main_widget_type") != null;
+                boolean clickable = loadOk && active && app.get("main_widget_type") != null;
 
                 String appId   = str(app.getOrDefault("app_id",   ""));
                 String name    = str(app.getOrDefault("app_name",  appId));
                 String desc    = str(app.getOrDefault("app_description", ""));
                 String color   = str(app.getOrDefault("app_color",  "#6b7a9e"));
                 String rawIcon = str(app.getOrDefault("app_icon",   ""));
+                String loadErr = str(app.getOrDefault("load_error", ""));
 
                 String iconHtml = rawIcon.isEmpty()
                     ? defaultIconSvg(color)
                     : "<div class=\"app-icon\" style=\"color:" + escHtml(color) + "\">"
                         + rawIcon + "</div>";
 
-                String cardClass = "app-card" + (active ? "" : " inactive");
+                String cardClass = "app-card"
+                        + (active ? "" : " inactive")
+                        + (loadOk ? "" : " load-failed");
                 String onclick   = clickable
                     ? " onclick=\"openApp('" + escJs(appId) + "')\""
                     : "";
@@ -139,6 +154,11 @@ public class WorldoneSystemSkillsController {
                      .append("<div class=\"app-name\">").append(escHtml(name)).append("</div>");
                 if (!desc.isBlank()) {
                     cards.append("<div class=\"app-desc\">").append(escHtml(desc)).append("</div>");
+                }
+                if (!loadOk) {
+                    cards.append("<div class=\"app-warn\">⚠ 加载失败：")
+                         .append(escHtml(loadErr.isBlank() ? "请检查应用是否在线" : loadErr))
+                         .append("</div>");
                 }
                 cards.append("</div></div>");
             }
@@ -157,11 +177,13 @@ public class WorldoneSystemSkillsController {
             .app-card:last-child{border-bottom:none}
             .app-card:hover{background:rgba(124,111,247,.14)}
             .app-card.inactive{opacity:.45;cursor:default;pointer-events:none}
+            .app-card.load-failed{opacity:.45;cursor:not-allowed;pointer-events:none;background:rgba(255,79,106,.06)}
             .app-icon{width:32px;height:32px;border-radius:7px;display:flex;align-items:center;
                       justify-content:center;flex-shrink:0;font-size:18px;background:rgba(255,255,255,.06)}
             .app-icon svg{width:18px;height:18px}
             .app-name{font-size:13px;font-weight:500;color:#d0d8f0;line-height:1.3}
             .app-desc{font-size:11px;color:#6b7a9e;margin-top:2px;line-height:1.3}
+            .app-warn{font-size:10px;color:#ffcc66;margin-top:4px;line-height:1.35;font-weight:600}
             .empty{padding:24px;text-align:center;color:#6b7a9e;font-size:12px}
             </style></head>
             <body>

@@ -252,20 +252,71 @@ public class AppRegistry {
         return hints;
     }
 
-    /** 聚合所有 app 的 skills，返回 OpenAI function-call 格式列表。
-     *  background=true 和 auto_pre_turn=true 的 skill 由 host 自动调用，不暴露给 LLM。*/
+    /**
+     * 聚合所有 app 的 tools，返回可暴露给 LLM 的清单。
+     *
+     * <p>过滤规则（与 Tool 模型对齐）：
+     * <ul>
+     *   <li>{@code background=true} 或 {@code auto_pre_turn=true}：host 自动调用，隐藏。</li>
+     *   <li>{@code visibility} 不含 {@code "llm"}：UI-only 或 host-only，隐藏（例如
+     *       {@code memory_load} widget 级副本 {@code visibility=["ui"]}）。</li>
+     *   <li>同名跨条目去重（app 与 widget 级可能同时登记相同 tool）：
+     *       优先级 app-level &gt; widget-level，{@code visible_when=always} &gt; {@code canvas_open}。
+     *       未命中优先级时保留首个出现的定义。</li>
+     * </ul>
+     * <p>去重是必要的：LLM API（OpenAI / Anthropic）要求 tool 名称唯一，
+     * 否则整轮 400 "Tool names must be unique"。
+     */
     public List<Map<String, Object>> allSkillsAsTools() {
         refreshMissingAppsIfNeeded();
-        List<Map<String, Object>> tools = new ArrayList<>();
+        Map<String, Map<String, Object>> byName = new LinkedHashMap<>();
         for (AppRegistration app : registry.values()) {
             for (Map<String, Object> skill : app.skills()) {
-                if (!Boolean.TRUE.equals(skill.get("background"))
-                        && !Boolean.TRUE.equals(skill.get("auto_pre_turn"))) {
-                    tools.add(skill);
+                if (Boolean.TRUE.equals(skill.get("background"))) continue;
+                if (Boolean.TRUE.equals(skill.get("auto_pre_turn"))) continue;
+                if (!visibilityContains(skill, "llm")) continue;
+
+                Object nameObj = skill.get("name");
+                if (nameObj == null) continue;
+                String name = nameObj.toString();
+
+                Map<String, Object> existing = byName.get(name);
+                if (existing == null || llmToolRank(skill) > llmToolRank(existing)) {
+                    byName.put(name, skill);
                 }
             }
         }
-        return tools;
+        return new ArrayList<>(byName.values());
+    }
+
+    private static boolean visibilityContains(Map<String, Object> tool, String token) {
+        Object v = tool.get("visibility");
+        if (!(v instanceof List<?> list)) {
+            // Tool 未声明 visibility 时按旧默认（对 LLM 可见）兜底，保持与 Phase 1 之前行为一致。
+            return "llm".equals(token);
+        }
+        for (Object o : list) if (token.equals(String.valueOf(o))) return true;
+        return false;
+    }
+
+    /**
+     * 同名 tool 去重的优先级分：app 级 &gt; widget 级；{@code always} 的可见窗口 &gt; {@code canvas_open}。
+     */
+    @SuppressWarnings("unchecked")
+    private static int llmToolRank(Map<String, Object> tool) {
+        Object scopeObj = tool.get("scope");
+        if (!(scopeObj instanceof Map<?, ?> sMap)) return 0;
+        Map<String, Object> scope = (Map<String, Object>) sMap;
+        String level = String.valueOf(scope.get("level"));
+        String when  = String.valueOf(scope.get("visible_when"));
+        int rank = switch (level) {
+            case "universal" -> 3;
+            case "app"       -> 2;
+            case "widget"    -> 1;
+            default          -> 0;
+        };
+        if ("always".equals(when)) rank += 10; // 优先"一直可见"的副本
+        return rank;
     }
 
     /**
