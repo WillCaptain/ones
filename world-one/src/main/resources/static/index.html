@@ -456,6 +456,7 @@ body.canvas-mode .designer-tab-content { top: 36px; }
 #actions-table tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; transition: background .1s; }
 #actions-table tbody tr:hover { background: var(--surface2); }
 #actions-table td { padding: 7px 10px; vertical-align: middle; }
+.action-decision-chip:hover { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
 .designer-list { overflow-y: auto; height: calc(100% - 41px); padding: 8px 0; }
 .designer-item {
   padding: 9px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
@@ -844,7 +845,16 @@ textarea.de-field {
 .outline-section-label {
   padding: 8px 12px 2px; font-size: 10px; color: var(--text-muted);
   text-transform: uppercase; letter-spacing: .6px; user-select: none;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
 }
+.outline-section-add {
+  background: none; border: 1px solid var(--border); color: var(--text-dim);
+  width: 18px; height: 18px; border-radius: 4px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; line-height: 1; padding: 0;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.outline-section-add:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 .outline-item {
   padding: 5px 10px; cursor: pointer; font-size: 12px; color: var(--text-dim);
   display: flex; align-items: center; gap: 6px;
@@ -852,6 +862,15 @@ textarea.de-field {
 }
 .outline-item:hover { background: var(--surface2); color: var(--text); }
 .outline-item.active { background: var(--active); color: var(--accent); }
+.outline-item-del {
+  margin-left: auto; flex-shrink: 0;
+  background: none; border: none; color: var(--text-muted);
+  width: 18px; height: 18px; border-radius: 3px; cursor: pointer;
+  display: none; align-items: center; justify-content: center;
+  font-size: 13px; line-height: 1; padding: 0;
+}
+.outline-item:hover .outline-item-del { display: inline-flex; }
+.outline-item-del:hover { background: rgba(239,68,68,.2); color: #ef4444; }
 .oi-badge {
   font-size: 9px; padding: 1px 4px; border-radius: 3px; flex-shrink: 0;
   font-weight: 700; letter-spacing: .2px;
@@ -2016,9 +2035,10 @@ window.addEventListener('DOMContentLoaded', () => {
           <table id="actions-table" style="width:100%;border-collapse:collapse;font-size:12px;">
             <thead>
               <tr style="border-bottom:2px solid var(--border);position:sticky;top:0;background:var(--surface);">
-                <th id="act-th-name"    class="act-th" onclick="toggleActSort('name')"    style="text-align:left;padding:7px 10px;cursor:pointer;user-select:none;width:44%;">Action <span id="act-arrow-name"></span></th>
-                <th id="act-th-entity"  class="act-th" onclick="toggleActSort('entity')"  style="text-align:left;padding:7px 8px;cursor:pointer;user-select:none;width:28%;">Entity <span id="act-arrow-entity"></span></th>
-                <th id="act-th-updated" class="act-th" onclick="toggleActSort('updated')" style="text-align:left;padding:7px 8px;cursor:pointer;user-select:none;width:28%;">更新时间 <span id="act-arrow-updated"></span></th>
+                <th id="act-th-name"    class="act-th" onclick="toggleActSort('name')"    style="text-align:left;padding:7px 10px;cursor:pointer;user-select:none;width:32%;">Action <span id="act-arrow-name"></span></th>
+                <th id="act-th-refs"                                                       style="text-align:left;padding:7px 8px;user-select:none;width:28%;" data-i18n="act.usedBy">Used by</th>
+                <th id="act-th-entity"  class="act-th" onclick="toggleActSort('entity')"  style="text-align:left;padding:7px 8px;cursor:pointer;user-select:none;width:20%;">Entity <span id="act-arrow-entity"></span></th>
+                <th id="act-th-updated" class="act-th" onclick="toggleActSort('updated')" style="text-align:left;padding:7px 8px;cursor:pointer;user-select:none;width:20%;">更新时间 <span id="act-arrow-updated"></span></th>
               </tr>
             </thead>
             <tbody id="actions-list"></tbody>
@@ -2038,11 +2058,12 @@ window.addEventListener('DOMContentLoaded', () => {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
               <div>
                 <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;" data-i18n="ae.entityType">Entity 类型</label>
-                <div id="ae-entity-type-display" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;color:var(--accent);font-weight:600;min-height:34px;display:flex;align-items:center;gap:6px;">
-                  <span id="ae-entity-type-label" style="flex:1;">—</span>
-                  <span style="font-size:10px;color:var(--text-muted);font-weight:400;">只读</span>
-                </div>
+                <select id="ae-entity-type-select" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--accent);font-size:13px;font-weight:600;">
+                </select>
+                <div id="ae-entity-type-note" style="display:none;font-size:10px;color:#ef4444;margin-top:3px;"></div>
                 <input id="ae-entity-type" type="hidden" value="">
+                <!-- original host at open time — used to call world_move_action on save -->
+                <input id="ae-entity-type-original" type="hidden" value="">
               </div>
               <div>
                 <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px;" data-i18n="ae.actionName">Action 名称</label>
@@ -2431,6 +2452,13 @@ const TRANSLATIONS = {
     'error.noApiKey':         '⚠️ API Key 无效或未配置。',
     'error.connect':          '连接错误：',
     'ae.listTitle':           'Action 注册表',
+    'act.usedBy':             '被引用',
+    'act.orphan':             '孤儿',
+    'act.orphan.hint':        '宿主 entity 已不存在，打开详情页重新选一个 entity',
+    'act.delete':             '删除 action',
+    'act.delete.confirm':     '确定删除此 action？',
+    'act.delete.refs':        '该 action 被以下 decisions 引用：',
+    'act.delete.refsHint':    '删除后这些 decision 的引用会变成悬空引用（missing action）。',
     'ae.addBtn':              '+ 注册',
     'ae.title.config':        '配置 Action',
     'ae.title.new':           '注册新 Action',
@@ -2564,6 +2592,13 @@ const TRANSLATIONS = {
     'error.noApiKey':         '⚠️ Invalid or missing API Key.',
     'error.connect':          'Connection error: ',
     'ae.listTitle':           'Action Registry',
+    'act.usedBy':             'Used by',
+    'act.orphan':             'orphan',
+    'act.orphan.hint':        'Host entity no longer exists — open the editor and pick a new one',
+    'act.delete':             'Delete action',
+    'act.delete.confirm':     'Delete this action?',
+    'act.delete.refs':        'This action is referenced by these decisions:',
+    'act.delete.refsHint':    'After deletion, those references will become dangling (missing action).',
     'ae.addBtn':              '+ Register',
     'ae.title.config':        'Configure Action',
     'ae.title.new':           'Register New Action',
@@ -4557,15 +4592,41 @@ function _updateActSortArrows() {
   });
 }
 
+/** Reverse index: "entityType::name" → [{id, goal}] of decisions referencing this action. */
+function _buildActionRefIndex() {
+  const map = new Map();
+  (_decisionTemplates || []).forEach(d => {
+    if (!d || !Array.isArray(d.actionDefs)) return;
+    const seen = new Set();
+    d.actionDefs.forEach(ad => {
+      const key = (ad && ad.action) ? String(ad.action) : '';
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push({ id: d.id || '', goal: (d.intent && d.intent.goal) || d.id || '' });
+    });
+  });
+  return map;
+}
+
+/** Jump from Actions tab to Decisions tab, focus a decision and open its editor. */
+async function jumpToDecisionFromAction(decisionId) {
+  if (!decisionId) return;
+  switchDesignerTab('decisions');
+  await loadDecisionsList();
+  selectDecision(decisionId);
+}
+
 function _renderActionsTable(actions) {
   const tbody = document.getElementById('actions-list');
   if (!tbody) return;
   _updateActSortArrows();
 
   if (!actions.length) {
-    tbody.innerHTML = `<tr><td colspan="3" style="padding:20px;color:var(--text-muted);text-align:center;">${t('ae.emptyList')}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" style="padding:20px;color:var(--text-muted);text-align:center;">${t('ae.emptyList')}</td></tr>`;
     return;
   }
+  const refIndex = _buildActionRefIndex();
 
   const sorted = [...actions].sort((a, b) => {
     let va, vb;
@@ -4575,6 +4636,12 @@ function _renderActionsTable(actions) {
     const cmp = va.localeCompare(vb);
     return _actionsSort.dir === 'asc' ? cmp : -cmp;
   });
+
+  // Currently-known entities in this world (used to populate the reparent dropdown
+  // and to detect orphan actions whose entityType no longer exists).
+  const liveEntities = (graphState.nodes || [])
+    .filter(n => n.type === 'entity').map(n => n.id).sort();
+  const liveEntitySet = new Set(liveEntities);
 
   tbody.innerHTML = sorted.map(a => {
     const key = a.entityType + '::' + a.name;
@@ -4589,20 +4656,75 @@ function _renderActionsTable(actions) {
     const sigShort = (a.sig || '').replace('->', '→');
     const widgetMark = a.hasArgWidget
       ? `<span title="已配置 executor arg widget" style="color:#60a5fa;margin-left:4px;">🧩</span>` : '';
-    return `<tr onclick="editAction('${escHtml(a.entityType)}','${escHtml(a.name)}')">
-      <td>
-        <div style="font-weight:600;color:var(--text);">${escHtml(a.name)}${warn}${widgetMark}</div>
-        <div style="font-size:10px;color:var(--text-muted);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${escHtml(sigShort)}</div>
+    const refs = refIndex.get(key) || [];
+    const refChips = refs.length
+      ? `<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">${
+          refs.map(r => {
+            const title = r.goal && r.goal !== r.id ? `${r.id} · ${r.goal}` : r.id;
+            return `<span class="action-decision-chip" onclick="event.stopPropagation();jumpToDecisionFromAction('${escHtml(r.id)}')" title="${escHtml(title)}" style="display:inline-flex;align-items:center;max-width:140px;padding:1px 8px;border-radius:10px;background:var(--surface3);border:1px solid var(--border);color:var(--accent);font-size:10px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(r.id)}</span>`;
+          }).join('')
+        }</div>`
+      : `<span style="color:var(--text-muted);font-size:11px;">—</span>`;
+    const isOrphan = !liveEntitySet.has(a.entityType);
+    const entityLabel = isOrphan
+      ? `<span title="${escHtml(t('act.orphan.hint') || '宿主 entity 已不存在，打开详情页重新选一个 entity')}" style="color:#ef4444;font-size:11px;">⚠ ${escHtml(a.entityType)} <span style="font-size:10px;opacity:.85;">(${escHtml(t('act.orphan') || 'orphan')})</span></span>`
+      : `<span style="color:var(--accent);font-size:11px;">${escHtml(a.entityType)}</span>`;
+    const delBtn = `<button title="${t('act.delete') || '删除 action'}"
+        onclick="event.stopPropagation();deleteActionRow('${escHtml(a.entityType)}','${escHtml(a.name)}')"
+        style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px;padding:2px 6px;line-height:1;">×</button>`;
+    return `<tr onclick="editAction('${escHtml(a.entityType)}','${escHtml(a.name)}')" style="${isOrphan ? 'background:rgba(239,68,68,.04);' : ''}">
+      <td style="padding:6px 10px;">
+        <div style="display:flex;align-items:center;gap:4px;">
+          <div style="font-weight:600;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;">${escHtml(a.name)}${warn}${widgetMark}</div>
+          ${delBtn}
+        </div>
+        <div style="font-size:10px;color:var(--text-dim);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;">${escHtml(sigShort)}</div>
       </td>
-      <td style="color:var(--accent);font-size:11px;">${escHtml(a.entityType)}</td>
-      <td style="color:var(--text-muted);font-size:11px;white-space:nowrap;">${escHtml(timeStr)}</td>
+      <td style="padding:6px 8px;">${refChips}</td>
+      <td style="padding:6px 8px;">${entityLabel}</td>
+      <td style="color:var(--text-muted);font-size:11px;white-space:nowrap;padding:6px 8px;">${escHtml(timeStr)}</td>
     </tr>`;
   }).join('');
 }
 
+/** Row-level handler: delete an action (confirms if referenced by decisions). */
+async function deleteActionRow(entityType, actionName) {
+  if (!worldSessionId) return;
+  const key = entityType + '::' + actionName;
+  const refs = _buildActionRefIndex().get(key) || [];
+  const refText = refs.length
+    ? `\n\n${t('act.delete.refs') || '该 action 被以下 decisions 引用：'}\n  · ${refs.map(r => r.id).join('\n  · ')}\n\n${t('act.delete.refsHint') || '删除后这些 decision 的引用会变成悬空引用（missing action）。'}`
+    : '';
+  const ok = confirm(`${t('act.delete.confirm') || '确定删除此 action？'}\n  ${key}${refText}`);
+  if (!ok) return;
+  try {
+    const r = await worldProxyTool('world_remove_action', {
+      session_id: worldSessionId,
+      entity_type: entityType,
+      action_name: actionName,
+    });
+    if (r && r.error) { alert('Delete failed: ' + r.error); return; }
+    await loadActionsList();
+  } catch (e) {
+    alert('Delete failed: ' + (e.message || e));
+  }
+}
+
 async function loadActionsList() {
   if (!worldSessionId) return;
-  const data = await worldProxyTool('world_list_actions', { session_id: worldSessionId });
+  // Load actions; also refresh the decisions cache so we can render the
+  // "referenced by" chips under each action row (reverse index).
+  const [data, decData] = await Promise.all([
+    worldProxyTool('world_list_actions', { session_id: worldSessionId }),
+    worldProxyTool('world_list_decisions', { session_id: worldSessionId }),
+  ]);
+  if (decData && Array.isArray(decData.templates)) {
+    const templates = decData.templates.map(t => {
+      try { return typeof t === 'string' ? JSON.parse(t) : t; } catch (_) { return null; }
+    }).filter(Boolean);
+    _decisionTemplates = templates;
+    templates.forEach(d => { if (d && d.id) _decisionCache[d.id] = d; });
+  }
   const tbody = document.getElementById('actions-list');
   if (!tbody) return;
 
@@ -5000,18 +5122,34 @@ function _deRefreshActionDefDropdowns() {
   });
 }
 
-/** Populate an action <select>, filtered to the current Target Ontology entity. */
+/** Populate an action <select>, filtered to the current Target Ontology entity.
+ *  If the previously-selected action no longer exists in the cache (e.g. its
+ *  host entity was deleted, or the action itself was removed), we still keep
+ *  the value visible as a disabled "⚠ missing" option so the user can see
+ *  the dangling reference and re-pick. */
 function _dePopulateActionSel(sel, selectedAction) {
   const targetEntity = (document.getElementById('de-target-ontology')?.value || '').trim();
   const filtered = targetEntity
     ? _deActionsCache.filter(a => a.entityType === targetEntity)
     : _deActionsCache;
   const desired = (selectedAction || sel?.dataset?.selectedAction || '').trim();
-  sel.innerHTML = '<option value="">选择 Action…</option>' +
-    filtered.map(a => {
-      const v = `${a.entityType}::${a.name}`;
-      return `<option value="${escHtml(v)}"${v === desired ? ' selected' : ''}>${escHtml(v)}</option>`;
-    }).join('');
+  const existsInCache = !!_deActionsCache.find(a => `${a.entityType}::${a.name}` === desired);
+  const existsInFiltered = !!filtered.find(a => `${a.entityType}::${a.name}` === desired);
+  const opts = ['<option value="">选择 Action…</option>'];
+  if (desired && !existsInFiltered) {
+    const label = existsInCache
+      ? `⚠ ${desired} (wrong entity)`
+      : `⚠ ${desired} (missing)`;
+    opts.push(`<option value="${escHtml(desired)}" selected style="color:#ef4444;">${escHtml(label)}</option>`);
+    sel.style.borderColor = '#ef4444';
+  } else {
+    sel.style.borderColor = '';
+  }
+  filtered.forEach(a => {
+    const v = `${a.entityType}::${a.name}`;
+    opts.push(`<option value="${escHtml(v)}"${v === desired ? ' selected' : ''}>${escHtml(v)}</option>`);
+  });
+  sel.innerHTML = opts.join('');
   if (desired) sel.dataset.selectedAction = desired;
 }
 
@@ -5502,12 +5640,76 @@ function onEntityTypeInput(value) {
   applyActionEntityType(value, '');
 }
 
-/** Set the (locked) entity type for the action editor. Updates display badge + hidden input. */
-function _setActionEntityType(entityType) {
+/** Set the entity type for the action editor and repopulate the dropdown.
+ *  The dropdown lists all live entities; if {@code entityType} is an orphan
+ *  (no longer in the graph) we prepend a disabled option so the stored host
+ *  stays visible and the user is nudged to pick a real entity.
+ *  {@code isOriginal} (default true) also resets the "original host" anchor
+ *  used by saveAction to detect whether a reparent is needed. */
+function _setActionEntityType(entityType, isOriginal) {
+  if (isOriginal === undefined) isOriginal = true;
   const val = (entityType || '').trim();
   document.getElementById('ae-entity-type').value = val;
-  const label = document.getElementById('ae-entity-type-label');
-  if (label) label.textContent = val || '—';
+  if (isOriginal) {
+    const origInp = document.getElementById('ae-entity-type-original');
+    if (origInp) origInp.value = val;
+  }
+  const sel = document.getElementById('ae-entity-type-select');
+  if (!sel) return;
+  const liveEntities = (graphState.nodes || [])
+    .filter(n => n.type === 'entity').map(n => n.id).sort();
+  const isOrphan = val && !liveEntities.includes(val);
+  const opts = [];
+  opts.push(`<option value="" disabled${val ? '' : ' selected'}>${escHtml(t('ae.selectEntity') || 'Select Entity…')}</option>`);
+  if (isOrphan) {
+    opts.push(`<option value="${escHtml(val)}" selected disabled style="color:#ef4444;">⚠ ${escHtml(val)} (${escHtml(t('act.orphan') || 'orphan')})</option>`);
+  }
+  liveEntities.forEach(eid => {
+    const selAttr = (eid === val && !isOrphan) ? ' selected' : '';
+    opts.push(`<option value="${escHtml(eid)}"${selAttr}>${escHtml(eid)}</option>`);
+  });
+  sel.innerHTML = opts.join('');
+  sel.style.borderColor = isOrphan ? '#ef4444' : '';
+  sel.style.color = isOrphan ? '#ef4444' : 'var(--accent)';
+  const note = document.getElementById('ae-entity-type-note');
+  if (note) {
+    if (isOrphan) {
+      note.textContent = t('act.orphan.hint') || 'Host entity no longer exists — pick a new one';
+      note.style.display = '';
+    } else {
+      note.style.display = 'none';
+    }
+  }
+  // Keep hidden input in sync when user picks from dropdown (attach once).
+  if (!sel.dataset.bound) {
+    sel.dataset.bound = '1';
+    sel.addEventListener('change', () => {
+      const v = sel.value;
+      document.getElementById('ae-entity-type').value = v;
+      const orig = document.getElementById('ae-entity-type-original').value;
+      if (v && v !== orig) {
+        sel.style.borderColor = '#f59e0b';
+        sel.style.color = '#f59e0b';
+        const nt = document.getElementById('ae-entity-type-note');
+        if (nt) {
+          nt.textContent = (LANG === 'zh'
+            ? `保存时会把 action 从 "${orig || '(none)'}" 改挂到 "${v}"`
+            : `On save, this action will be reparented from "${orig || '(none)'}" to "${v}"`);
+          nt.style.color = '#f59e0b';
+          nt.style.display = '';
+        }
+      } else {
+        sel.style.borderColor = '';
+        sel.style.color = 'var(--accent)';
+        const nt = document.getElementById('ae-entity-type-note');
+        if (nt) nt.style.display = 'none';
+      }
+      // Recompute the fn-header ("(employee) ->"), param-hint, and signature for
+      // the new entity type. We pass empty existingSig so the default "EntityType -> Unit"
+      // is used (user likely wants a clean slate for the new host).
+      if (typeof applyActionEntityType === 'function') applyActionEntityType(v, '');
+    });
+  }
 }
 
 /** @deprecated kept for any lingering callers; delegates to _setActionEntityType */
@@ -5648,6 +5850,58 @@ function scheduleMonacoDiagnostics() {
 // ── Action type inference (debounced) ─────────────────────────────────────────
 let _inferTypeTimer = null;
 
+/**
+ * Collapse every unit-shaped token to the Outline-legal literal "Unit".
+ *
+ * GCP structurally represents Unit as "()", but "()" is NOT a valid Outline lexeme.
+ * Persisting a signature like `Unit -> ()` poisons the entire world's parse on next
+ * startup (every hover / completion returns `?`), so we sanitize here and also on
+ * the backend (WorldOneSession.sanitizeActionSpec) as a belt-and-suspenders measure.
+ */
+function _normalizeUnitToken(tok) {
+  if (tok == null) return 'Unit';
+  const s = String(tok).trim();
+  if (!s) return 'Unit';
+  const noSpace = s.replace(/\s+/g, '');
+  if (noSpace === '()' || noSpace.toLowerCase() === 'unit') return 'Unit';
+  return s;
+}
+
+/** True if `t` is clearly not a single well-formed type token (unbalanced
+ *  delimiters, or a bare comma at top level). Seen in the wild when a partial
+ *  inference result like `Employee -> (),status: Lazy{SymbolIdentifier)?}`
+ *  leaks into the saved signature and later corrupts the entity's outline. */
+function _looksLikeBrokenType(t) {
+  if (t == null) return false;
+  const s = String(t).trim();
+  if (!s) return false;
+  let paren = 0, brace = 0, brack = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '(') paren++;
+    else if (c === ')') paren--;
+    else if (c === '{') brace++;
+    else if (c === '}') brace--;
+    else if (c === '[') brack++;
+    else if (c === ']') brack--;
+    else if (c === ',' && paren === 0 && brace === 0 && brack === 0) return true;
+  }
+  return paren !== 0 || brace !== 0 || brack !== 0;
+}
+
+/** Normalize both sides of an Outline function signature (e.g. "Employee -> ()" → "Employee -> Unit"). */
+function _normalizeOutlineSignature(sig) {
+  if (!sig) return 'Unit -> Unit';
+  const s = String(sig).trim();
+  if (!s.includes('->')) return s;
+  const idx = s.lastIndexOf('->');
+  let lhs = s.slice(0, idx);
+  let rhs = s.slice(idx + 2);
+  if (_looksLikeBrokenType(lhs)) lhs = 'Unit';
+  if (_looksLikeBrokenType(rhs)) rhs = 'Unit';
+  return _normalizeUnitToken(lhs) + ' -> ' + _normalizeUnitToken(rhs);
+}
+
 function _scheduleInferActionType() {
   if (_inferTypeTimer) clearTimeout(_inferTypeTimer);
   _inferTypeTimer = setTimeout(_doInferActionType, 700);
@@ -5677,11 +5931,15 @@ async function _doInferActionType() {
     const data = await res.json();
     if (data.inputType && data.returnType && !data.error) {
       const rawReturn = String(data.returnType || '').trim();
-      const returnType = rawReturn.includes('->')
+      let returnType = rawReturn.includes('->')
         ? rawReturn.slice(rawReturn.lastIndexOf('->') + 2).trim()
         : rawReturn;
-      const inputType = entityType || data.inputType || 'Unit';
-      const sig = `${inputType} -> ${returnType || 'Unit'}`;
+      // Collapse every unit-shaped token to the Outline-legal "Unit" — never
+      // let "()" escape into the signature (it is not a valid Outline lexeme
+      // and poisons the whole world's parse).
+      returnType = _normalizeUnitToken(returnType);
+      const inputType = _normalizeUnitToken(entityType || data.inputType || 'Unit');
+      const sig = `${inputType} -> ${returnType}`;
       document.getElementById('ae-signature').value = sig;
       document.getElementById('ae-signature-display').textContent = sig.replace('->', '→');
       return true;
@@ -6137,7 +6395,7 @@ async function saveAction() {
     await _doInferActionType();
   }
 
-  const signature   = document.getElementById('ae-signature').value.trim() || 'Unit -> Unit';
+  const signature   = _normalizeOutlineSignature(document.getElementById('ae-signature').value.trim() || 'Unit -> Unit');
   const description = document.getElementById('ae-description').value.trim();
   const executorRegistrationId = (document.getElementById('ae-exec-registration').value || '').trim();
   const argWidgetType = (document.getElementById('ae-arg-widget').value || '').trim();
@@ -6195,6 +6453,18 @@ async function saveAction() {
     if (_aeMode === 'new') {
       result = await worldProxyTool('world_register_action', { session_id: worldSessionId, definition: spec });
     } else {
+      // If the user changed the host entity (reparent), do the move first so the
+      // subsequent modify can look up the action under its new key.
+      if (entityType && _aeOrigEntityType && entityType !== _aeOrigEntityType) {
+        const mv = await worldProxyTool('world_move_action', {
+          session_id: worldSessionId,
+          from_entity: _aeOrigEntityType,
+          to_entity:   entityType,
+          action_name: _aeOrigActionName,
+        });
+        if (mv?.error) { showActionError('Reparent failed: ' + mv.error); return; }
+        _aeOrigEntityType = entityType; // follow-up modify targets the new key
+      }
       result = await worldProxyTool('world_modify_action', {
         session_id: worldSessionId,
         entity_type: _aeOrigEntityType,
@@ -8330,6 +8600,10 @@ let graphNodePos     = {};    // id → {x,y,w,h} for navigation
 let graphLayoutKey   = '';    // sorted entity-id string; recompute layout only when this changes
 let graphZoom        = 1.0;   // view-level zoom (applied to SVG physical size)
 let graphNodePinned  = new Set();  // nids manually dragged → stay fixed in simulations
+// Per-node collapse state for the three in-shape groups (attributes, edges, actions).
+// Shape: { [nodeId]: { attrs:boolean, edges:boolean, actions:boolean } }
+// Defaults (when a key is missing): attrs=true, edges=false, actions=false.
+let graphNodeGroups  = {};
 let graphNodeEdgeKey = {};         // nid → sorted edge-partner string (change → auto-unpin)
 let _graphFitDone    = false;      // auto-fit runs once per loaded session (real container dims)
 
@@ -8340,13 +8614,14 @@ function saveGraphLayout() {
     localStorage.setItem('gl-' + worldSessionId, JSON.stringify({
       pos: graphNodePos, pinned: [...graphNodePinned],
       edgeKey: graphNodeEdgeKey, layoutKey: graphLayoutKey, zoom: graphZoom,
+      groups: graphNodeGroups,
     }));
   } catch {}
 }
 
 /** 加载指定 session 的布局；成功时返回 true，并恢复所有状态（含 layoutKey，防止不必要的重排） */
 function loadGraphLayout(sessionId) {
-  graphNodePos = {}; graphNodePinned = new Set();
+  graphNodePos = {}; graphNodePinned = new Set(); graphNodeGroups = {};
   graphNodeEdgeKey = {}; graphLayoutKey = ''; graphZoom = 1.0; _graphFitDone = false;
   if (!sessionId) return;
   try {
@@ -8357,9 +8632,66 @@ function loadGraphLayout(sessionId) {
     graphNodePinned  = new Set(d.pinned  || []);
     graphNodeEdgeKey = d.edgeKey  || {};
     graphLayoutKey   = d.layoutKey|| '';
+    graphNodeGroups  = d.groups   || {};
     // 不恢复 zoom：始终从 1.0（100%）开始，避免旧 auto-fit 留下的错误比例干扰。
     // graphZoom 保持 loadGraphLayout 入口处设置的 1.0。
   } catch {}
+}
+
+// ── Entity-node row layout constants ──────────────────────────────────────────
+// Rows are rendered flat under the title bar in a fixed order:
+//   attrs (◆)  → edges (→)  → actions (ƒ)
+// No group headers; each group collapses to its first item + "…" affordance.
+// Defaults: attrs expanded, edges/actions collapsed.
+const NODE_HEADER_H   = 28;
+const GROUP_ROW_H     = 18;
+const NODE_BOTTOM_PAD = 8;
+
+/** Return { attrs, edges, actions } lists (of display strings "name: Type") for an entity node. */
+function graphNodeSections(n) {
+  const edges = graphState.edges || [];
+  const nodes = graphState.nodes || [];
+  const enumIds = new Set(nodes.filter(x => x.type === 'enum').map(x => x.id));
+  const out = edges.filter(e => (e.source||e.from) === n.id);
+  // Both enum and entity-FK edges are shown with their semantic target type in the shape,
+  // e.g. `status: EmployeeStatus?` and `department: Department?`. The stored FK column
+  // (`department_id: Int?`) lives in the outline schema, not in the visual graph.
+  const _fmt = e => (e.label || '') + ': ' + (e.target||e.to) + (e.nullable ? '?' : '');
+  const enumAttrs = out.filter(e => enumIds.has(e.target||e.to)).map(_fmt);
+  const fkEdges   = out.filter(e => !enumIds.has(e.target||e.to)).map(_fmt);
+  const attrs = [...(n.fields || []), ...enumAttrs];
+  const actions = (n.actions || []).slice();
+  return { attrs, edges: fkEdges, actions };
+}
+
+/** Group expanded? Default: all groups collapsed (uniform compact view). */
+function graphGroupExpanded(n, key) {
+  const g = graphNodeGroups[n.id];
+  if (g && key in g) return !!g[key];
+  return false;
+}
+
+/** Visible row count for a group given its collapse state.
+ *  - 0 items          → 0 rows
+ *  - expanded         → all items
+ *  - collapsed & >1   → 1 row (the first item, with "…" affordance)
+ *  - collapsed & ≤1   → all items (nothing to collapse)
+ */
+function graphGroupVisibleCount(n, key, arr) {
+  if (!arr.length) return 0;
+  if (graphGroupExpanded(n, key)) return arr.length;
+  return arr.length > 1 ? 1 : arr.length;
+}
+
+/** Total height of an entity node given current section items + collapse state. */
+function graphNodeHeight(n) {
+  if (n.type === 'enum') return 48 + ((n.values || []).length) * 18;
+  const s = graphNodeSections(n);
+  const rows =
+      graphGroupVisibleCount(n, 'attrs',   s.attrs)   +
+      graphGroupVisibleCount(n, 'edges',   s.edges)   +
+      graphGroupVisibleCount(n, 'actions', s.actions);
+  return NODE_HEADER_H + rows * GROUP_ROW_H + NODE_BOTTOM_PAD;
 }
 
 /**
@@ -8367,9 +8699,8 @@ function loadGraphLayout(sessionId) {
  * 用于字段增删改时：x/y 坐标不动，高度随字段数量调整。
  */
 function renderGraphKeepLayout() {
-  const _nodeH = n => 48 + ((n.fields||[]).length + (n.values||[]).length) * 18;
   graphState.nodes.forEach(n => {
-    if (graphNodePos[n.id]) graphNodePos[n.id].h = _nodeH(n);
+    if (graphNodePos[n.id]) graphNodePos[n.id].h = graphNodeHeight(n);
   });
   renderGraph();
 }
@@ -8382,7 +8713,7 @@ let ndEnumValues   = [];  // [{value}] — enum values being edited
 // ─── Force-directed layout ─────────────────────────────────────────────────────
 function runForceLayout(entityNodes, entityEdges, W, H) {
   const NODE_W = 165, PAD = 50;
-  const nodeH  = n => 48 + ((n.fields||[]).length) * 18;
+  const nodeH = graphNodeHeight;
   const n      = entityNodes.length;
   if (!n) return;
 
@@ -8528,7 +8859,7 @@ function resetLayout() {
   renderGraph();         // 已钉住的节点作为固定锚点，只移动未钉住/边变化的节点
   applyZoom();
   const NODE_W = 165;
-  const nodeH = n => 48 + ((n.fields||[]).length) * 18;
+  const nodeH = graphNodeHeight;
   const entityNodes = (graphState.nodes || []).filter(n => n.type !== 'enum');
   const bbox = getGraphBBox(entityNodes, nodeH, NODE_W);
   if (bbox) centerGraphViewport(bbox);
@@ -8606,7 +8937,7 @@ function fitGraph() {
 
   // 用节点实际包围盒（不含 SVG canvas padding）计算适配比例
   const NODE_W = 165;
-  const nodeH  = n => 48 + ((n.fields||[]).length) * 18;
+  const nodeH = graphNodeHeight;
   const entityNodes = (graphState.nodes || []).filter(n => n.type !== 'enum');
   const bbox = normalizeGraphOrigin(entityNodes, nodeH, NODE_W, 16) || getGraphBBox(entityNodes, nodeH, NODE_W);
   if (!bbox || bbox.width <= 0 || bbox.height <= 0) return;
@@ -8630,6 +8961,24 @@ function initGraphInteractions() {
   let dragNid = null, dragOx = 0, dragOy = 0, hasMoved = false;
 
   svg.addEventListener('pointerdown', e => {
+    // Group-header toggle intercept (attributes / edges / actions)
+    const grp = e.target.closest('[data-grp-nid]');
+    if (grp) {
+      e.preventDefault(); e.stopPropagation();
+      const nid = grp.getAttribute('data-grp-nid');
+      const key = grp.getAttribute('data-grp');
+      if (!graphNodeGroups[nid]) graphNodeGroups[nid] = {};
+      const cur = (key in graphNodeGroups[nid]) ? graphNodeGroups[nid][key] : (key === 'attrs');
+      graphNodeGroups[nid][key] = !cur;
+      // Recompute this node's height and redraw (layout unchanged).
+      if (graphNodePos[nid]) {
+        const nd = graphState.nodes.find(x => x.id === nid);
+        if (nd) graphNodePos[nid].h = graphNodeHeight(nd);
+      }
+      saveGraphLayout();
+      renderGraph();
+      return;
+    }
     // Pin toggle intercept
     const pin = e.target.closest('[data-pin-nid]');
     if (pin) {
@@ -8724,7 +9073,7 @@ function renderGraph() {
   });
 
   const NODE_W = 165, PAD = 16;
-  const nodeH  = n => 48 + ((n.fields||[]).length) * 18;
+  const nodeH = graphNodeHeight;
 
   // Only layout entities that have no position yet; preserve existing positions
   // so editing entity properties does not reshuffle the graph.
@@ -8802,10 +9151,41 @@ function renderGraph() {
         <text x="0" y="11" font-size="12" opacity="${isPinned ? 1 : 0.5}">${isPinned ? '📌' : '📍'}</text>
       </g>`;
     }
-    (n.fields||[]).forEach((f, i) => {
-      const parts = typeof f === 'string' ? f.split(':') : [f.name||'', f.type||''];
-      const ts = parts[1] ? ` <tspan fill="#7a88b8">: ${esc(parts[1])}</tspan>` : '';
-      html += `<text x="${p.x+12}" y="${p.y+42+i*18}" font-size="11" fill="#8b9fc0">${esc(parts[0])}${ts}</text>`;
+    // Flat row list: attrs (◆) → edges (→) → actions (ƒ). Each group is
+    // independently collapsible; when collapsed and it has >1 item, only the
+    // first item is shown with a "…" affordance at the right edge. Clicking
+    // anywhere in a row toggles that group's expanded state.
+    const _sec = graphNodeSections(n);
+    const groupDefs = [
+      ['attrs',   '–', _sec.attrs],
+      ['edges',   '→', _sec.edges],
+      ['actions', 'ƒ', _sec.actions],
+    ];
+    let ry = p.y + NODE_HEADER_H;
+    groupDefs.forEach(([key, icon, items]) => {
+      if (!items.length) return;
+      const expanded = graphGroupExpanded(n, key);
+      const visible = (expanded || items.length <= 1) ? items.length : 1;
+      for (let i = 0; i < visible; i++) {
+        const f = items[i];
+        const parts = typeof f === 'string' ? f.split(':') : [f.name||'', f.type||''];
+        const lhs = (parts[0]||'').trim();
+        const rhs = (parts[1]||'').trim();
+        const ts = rhs ? ` <tspan fill="#5f6c8c">: ${esc(rhs)}</tspan>` : '';
+        const ty = ry + 12;
+        const showDots = !expanded && items.length > 1 && i === 0;
+        const dots = showDots
+          ? `<text x="${p.x+NODE_W-8}" y="${ty}" text-anchor="end" font-size="11" fill="#5f6c8c" style="pointer-events:none">…</text>`
+          : '';
+        // Whole-row hit area so the user can click anywhere on a row to toggle.
+        html += `<g data-grp-nid="${n.id}" data-grp="${key}" style="cursor:pointer">
+          <rect x="${p.x}" y="${ry}" width="${NODE_W}" height="${GROUP_ROW_H}" fill="transparent"/>
+          <text x="${p.x+10}" y="${ty}" font-size="10" fill="#6c7aa0" style="pointer-events:none">${icon}</text>
+          <text x="${p.x+22}" y="${ty}" font-size="11" fill="#8a98bd" style="pointer-events:none">${esc(lhs)}${ts}</text>
+          ${dots}
+        </g>`;
+        ry += GROUP_ROW_H;
+      }
     });
     html += `</g>`;
   });
@@ -8828,33 +9208,134 @@ function renderOutline() {
   const list = document.getElementById('outline-list');
   if (!list) return;
   const { nodes } = graphState;
-  if (!nodes || !nodes.length) {
-    list.innerHTML = '<div style="padding:14px 12px;color:var(--text-muted);font-size:11px">暂无本体</div>';
+  const entities = (nodes || []).filter(n => n.type !== 'enum');
+  const enums    = (nodes || []).filter(n => n.type === 'enum');
+
+  const entLabel  = LANG === 'zh' ? '实体' : 'Entities';
+  const enumLabel = LANG === 'zh' ? '枚举' : 'Enums';
+  const addEntTitle  = LANG === 'zh' ? '新增实体' : 'Add entity';
+  const addEnumTitle = LANG === 'zh' ? '新增枚举' : 'Add enum';
+  const delTitle     = LANG === 'zh' ? '删除'    : 'Delete';
+
+  const section = (label, items, kind, addTitle) => {
+    let html = `<div class="outline-section-label">
+      <span>${label}</span>
+      <button class="outline-section-add" title="${addTitle}" onclick="event.stopPropagation();addOntologyClass('${kind}')">+</button>
+    </div>`;
+    if (!items.length) {
+      html += `<div style="padding:4px 12px;color:var(--text-muted);font-size:10px;">—</div>`;
+      return html;
+    }
+    const badge = kind === 'enum' ? 'enum' : 'entity';
+    const letter = kind === 'enum' ? 'N' : 'E';
+    const clickFn = kind === 'enum' ? 'selectEnum' : 'locateNode';
+    items.forEach(n => {
+      html += `<div class="outline-item${n.id === selectedNodeId ? ' active' : ''}" onclick="${clickFn}('${esc(n.id)}')">
+        <span class="oi-badge ${badge}">${letter}</span>
+        <span style="overflow:hidden;text-overflow:ellipsis">${esc(n.label||n.id)}</span>
+        <button class="outline-item-del" title="${delTitle}" onclick="event.stopPropagation();removeOntologyClass('${esc(n.id)}')">×</button>
+      </div>`;
+    });
+    return html;
+  };
+
+  list.innerHTML = section(entLabel, entities, 'entity', addEntTitle)
+                 + `<div style="height:6px"></div>`
+                 + section(enumLabel, enums, 'enum', addEnumTitle);
+}
+
+/**
+ * Create a new entity / enum.
+ * Prompts for a PascalCase class name, posts world_add_definition, refreshes the graph.
+ */
+async function addOntologyClass(kind) {
+  if (!worldSessionId) return;
+  const isEnum = kind === 'enum';
+  const promptMsg = isEnum
+    ? (LANG === 'zh' ? '新枚举名（PascalCase，例：Status）：' : 'New enum name (PascalCase, e.g. Status):')
+    : (LANG === 'zh' ? '新实体名（PascalCase，例：Order）：' : 'New entity name (PascalCase, e.g. Order):');
+  const name = (prompt(promptMsg) || '').trim();
+  if (!name) return;
+  if (!/^[A-Z][A-Za-z0-9]*$/.test(name)) {
+    alert(LANG === 'zh' ? '类名需为 PascalCase（首字母大写）' : 'Class name must be PascalCase');
     return;
   }
-  const entities = nodes.filter(n => n.type !== 'enum');
-  const enums    = nodes.filter(n => n.type === 'enum');
-  let html = '';
+  const def = isEnum
+    ? { class: name, 'class type': 'enum', values: [] }
+    : { class: name, 'class type': 'entity', plural: name + 's', module: 'default', fields: { name: 'String' } };
+  const res = await worldProxyTool('world_add_definition', {
+    session_id: worldSessionId,
+    definition: JSON.stringify(def),
+  });
+  if (res && res.error) {
+    alert((LANG === 'zh' ? '添加失败：' : 'Add failed: ') + res.error);
+    return;
+  }
+  const props = res && res.canvas && res.canvas.props;
+  if (props) {
+    const newNodes = props.nodes || [];
+    const newEdges = props.edges || [];
+    const nm = {}; graphState.nodes.forEach(n => nm[n.id] = n);
+    newNodes.forEach(n => nm[n.id] = n);
+    graphState.nodes = Object.values(nm);
+    const ek = e => (e.source||e.from) + '→' + (e.target||e.to);
+    const em = {}; graphState.edges.forEach(e => em[ek(e)] = e);
+    newEdges.forEach(e => em[ek(e)] = e);
+    graphState.edges = Object.values(em);
+  }
+  selectedNodeId = name;
+  renderGraphKeepLayout();
+  renderOutline();
+  showNodeDetail(name);
+  if (_currentOntologyView === 'schema') loadSchemaEditor();
+}
 
-  if (entities.length) {
-    html += `<div class="outline-section-label">实体</div>`;
-    entities.forEach(n => {
-      html += `<div class="outline-item${n.id === selectedNodeId ? ' active' : ''}" onclick="locateNode('${n.id}')">
-        <span class="oi-badge entity">E</span>
-        <span style="overflow:hidden;text-overflow:ellipsis">${esc(n.label||n.id)}</span>
-      </div>`;
-    });
+/** Delete an entity / enum after confirmation. */
+async function removeOntologyClass(className) {
+  if (!worldSessionId || !className) return;
+  // List actions currently hosted on this entity — they will become orphans
+  // (reparent strategy) and need user attention in the Action Tab.
+  // Fetch fresh: user may not have visited Action Tab yet, so the cache may be stale.
+  let freshActions = _actionsCache || [];
+  try {
+    const d = await worldProxyTool('world_list_actions', { session_id: worldSessionId });
+    if (d && Array.isArray(d.actions)) {
+      freshActions = d.actions.map(a => {
+        const o = typeof a === 'string' ? JSON.parse(a) : a;
+        return { entityType: o.entityType || 'global', name: o.name || '' };
+      });
+    }
+  } catch (_) { /* fall back to cache */ }
+  const orphaned = freshActions
+    .filter(a => a.entityType === className)
+    .map(a => a.name);
+  const orphanNote = orphaned.length
+    ? (LANG === 'zh'
+        ? `\n\n该实体下的 ${orphaned.length} 个 action 将变为孤儿（请到 Action Tab 重新认领或删除）：\n  · ${orphaned.join('\n  · ')}`
+        : `\n\n${orphaned.length} action(s) hosted on this entity will become orphans (reparent or delete them in the Action Tab):\n  · ${orphaned.join('\n  · ')}`)
+    : '';
+  const msg = (LANG === 'zh'
+    ? `确认删除「${className}」？引用它的字段会失效。`
+    : `Delete "${className}"? References from other classes will break.`)
+    + orphanNote;
+  if (!confirm(msg)) return;
+  const res = await worldProxyTool('world_remove_definition', {
+    session_id: worldSessionId,
+    class: className,
+  });
+  if (res && res.error) {
+    alert((LANG === 'zh' ? '删除失败：' : 'Remove failed: ') + res.error);
+    return;
   }
-  if (enums.length) {
-    html += `<div class="outline-section-label" style="margin-top:6px">枚举</div>`;
-    enums.forEach(n => {
-      html += `<div class="outline-item${n.id === selectedNodeId ? ' active' : ''}" onclick="selectEnum('${n.id}')">
-        <span class="oi-badge enum">N</span>
-        <span style="overflow:hidden;text-overflow:ellipsis">${esc(n.label||n.id)}</span>
-      </div>`;
-    });
-  }
-  list.innerHTML = html;
+  graphState.nodes = graphState.nodes.filter(n => n.id !== className);
+  graphState.edges = graphState.edges.filter(e => {
+    const s = e.source || e.from, t = e.target || e.to;
+    return s !== className && t !== className;
+  });
+  if (selectedNodeId === className) { selectedNodeId = null; hideNodeDetail(); }
+  renderGraphKeepLayout();
+  renderOutline();
+  if (_currentOntologyView === 'schema') loadSchemaEditor();
 }
 
 // ─── Node selection & navigation ──────────────────────────────────────────────
@@ -9036,6 +9517,10 @@ function showNodeDetail(id) {
         const m = t.match(/^\((.+)\|Nothing\)$/);
         return m ? m[1] + '?' : t;
       };
+      // Enum types are value types — must appear alongside primitive attributes,
+      // NOT in the FK/relations section (otherwise they'd emit as a method
+      // `status:Unit -> StatusEnum` instead of `status:Status`).
+      const ENUM_IDS = new Set((graphState.nodes || []).filter(n => n.type === 'enum').map(n => n.id));
       // ── primitive fields from node.fields (supports nullable suffix '?')
       const parsedFields = fields.map(f => {
         const parts = typeof f === 'string' ? f.split(':') : [f.name||'', f.type||''];
@@ -9044,19 +9529,31 @@ function showNodeDetail(id) {
         if (nullable) rawType = rawType.slice(0, -1);
         return { name: parts[0].trim(), type: rawType, nullable, _kind: 'prim' };
       });
-      // ── outgoing FK / enum edges → exclude primitive types (Date bug fix)
-      const outFKs = (graphState.edges || [])
+      // ── outgoing edges → split into enum-attributes and entity-FK relations
+      const outEdges = (graphState.edges || [])
         .filter(e => (e.source||e.from) === node.id)
         .filter(e => !PRIM_TYPES.has(e.target||e.to))
         .map(e => {
-          let fkType = e.target || e.to || '';
-          const nullable = fkType.endsWith('?');
-          if (nullable) fkType = fkType.slice(0, -1);
-          return { name: e.label || '', type: fkType, nullable, _kind: 'fk' };
+          let tgt = e.target || e.to || '';
+          // Backend now carries `nullable` as a flag; tolerate legacy shapes
+          // where the `?` suffix was encoded into the target string.
+          const suffixNullable = tgt.endsWith('?');
+          if (suffixNullable) tgt = tgt.slice(0, -1);
+          const nullable = !!e.nullable || suffixNullable;
+          const isEnum = ENUM_IDS.has(tgt);
+          return { name: e.label || '', type: tgt, nullable, _kind: isEnum ? 'prim' : 'fk' };
         });
+      // Merge enum edges into parsedFields (primitive-style attributes), deduping by name
+      // so a field that already appears in node.fields isn't listed twice.
+      const existingNames = new Set(parsedFields.map(p => p.name));
+      outEdges.filter(e => e._kind === 'prim' && !existingNames.has(e.name)).forEach(e => parsedFields.push(e));
+      const outFKs = outEdges.filter(e => e._kind === 'fk');
 
       const otherNodeIds = (graphState.nodes || [])
-        .filter(n => n.id !== node.id).map(n => n.id).sort();
+        .filter(n => n.id !== node.id && n.type !== 'enum').map(n => n.id).sort();
+      const enumIds = [...ENUM_IDS].sort();
+      // Union of primitive types + enums, used as the attribute-row type dropdown
+      const attrTypeOptions = [...PRIMITIVE_TYPES, ...enumIds];
 
       const renderEditRows = () => {
         editWrap.innerHTML = '';
@@ -9066,8 +9563,14 @@ function showNodeDetail(id) {
           if (f._kind !== 'prim') return;
           const row = document.createElement('div');
           row.className = 'nd-edit-row'; row.dataset.idx = idx; row.dataset.kind = 'prim';
+          // Include enum types in the type dropdown so they render as attributes,
+          // not as method-edges (status:Status, not status:Unit -> StatusEnum).
+          const typeOpts = attrTypeOptions.map(t => {
+            const group = enumIds.includes(t) ? ' data-enum="1"' : '';
+            return `<option${t===f.type?' selected':''}${group}>${t}</option>`;
+          }).join('');
           row.innerHTML = `<input class="nd-edit-name" value="${esc(f.name)}" placeholder="字段名" maxlength="40">
-            <select class="nd-edit-type">${PRIMITIVE_TYPES.map(t=>`<option${t===f.type?' selected':''}>${t}</option>`).join('')}</select>
+            <select class="nd-edit-type">${typeOpts}</select>
             <button class="nd-edit-nullable ${f.nullable?'active':''}" title="可空类型 (?)">?</button>
             <button class="nd-edit-del" title="删除">×</button>`;
           row.querySelector('.nd-edit-type').onchange = () => { ndSyncFromDom(); applyFieldsToGraph(node.id); scheduleAutoSave(node.id); };
@@ -9105,13 +9608,13 @@ function showNodeDetail(id) {
             <select class="nd-edit-type">${typeOpts}</select>
             <button class="nd-edit-nullable ${f.nullable?'active':''}" title="可空类型 (?)">?</button>
             <button class="nd-edit-del" title="删除">×</button>`;
-          row.querySelector('.nd-edit-type').onchange = () => { ndSyncFromDom(); scheduleAutoSave(node.id); };
-          row.querySelector('.nd-edit-name').onblur  = () => { ndSyncFromDom(); scheduleAutoSave(node.id); };
+          row.querySelector('.nd-edit-type').onchange = () => { ndSyncFromDom(); applyFieldsToGraph(node.id); scheduleAutoSave(node.id); };
+          row.querySelector('.nd-edit-name').onblur  = () => { ndSyncFromDom(); applyFieldsToGraph(node.id); scheduleAutoSave(node.id); };
           row.querySelector('.nd-edit-nullable').onclick = () => {
             ndSyncFromDom(); ndEditFields[idx].nullable = !ndEditFields[idx].nullable;
-            renderEditRows(); scheduleAutoSave(node.id);
+            renderEditRows(); applyFieldsToGraph(node.id); scheduleAutoSave(node.id);
           };
-          row.querySelector('.nd-edit-del').onclick  = () => { ndSyncFromDom(); ndEditFields.splice(idx,1); renderEditRows(); scheduleAutoSave(node.id); };
+          row.querySelector('.nd-edit-del').onclick  = () => { ndSyncFromDom(); ndEditFields.splice(idx,1); renderEditRows(); applyFieldsToGraph(node.id); scheduleAutoSave(node.id); };
           editWrap.appendChild(row);
         });
 
@@ -9400,8 +9903,23 @@ async function saveFieldEdits(nodeId) {
 function applyFieldsToGraph(nodeId) {
   const n = graphState.nodes?.find(n => n.id === nodeId);
   if (!n) return;
-  // Only primitive fields appear as text inside the graph node
-  n.fields = ndEditFields.filter(f => f._kind === 'prim').map(f => (f.name || '…') + ': ' + f.type + (f.nullable ? '?' : ''));
+  const enumIds = new Set((graphState.nodes || []).filter(x => x.type === 'enum').map(x => x.id));
+  // n.fields holds only PURE primitive attrs for in-shape rendering.
+  // Enum-typed attributes are mirrored into their outgoing enum edge instead,
+  // so they don't duplicate between n.fields and graphState.edges.
+  n.fields = ndEditFields
+    .filter(f => f._kind === 'prim' && !enumIds.has(f.type))
+    .map(f => (f.name || '…') + ': ' + f.type + (f.nullable ? '?' : ''));
+  // Live-sync enum + fk edges so nullable/type changes show immediately in the shape
+  // and round-trip cleanly through save.
+  const edges = graphState.edges || [];
+  ndEditFields.forEach(f => {
+    if (!f.name) return;
+    if (f._kind === 'fk' || (f._kind === 'prim' && enumIds.has(f.type))) {
+      const e = edges.find(x => (x.source||x.from) === nodeId && x.label === f.name);
+      if (e) { e.target = f.type; e.nullable = !!f.nullable; }
+    }
+  });
   renderGraphKeepLayout();
 }
 
