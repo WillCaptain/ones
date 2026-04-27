@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.twelve.entitir.aip.LLMCaller;
-import org.twelve.entitir.aip.worldone.ChatEvent;
+import org.twelve.entitir.aip.world.ChatEvent;
 import org.twelve.entitir.ontology.llm.LLMConfig;
 import org.twelve.entitir.worldone.skills.SkillDefinition;
 import org.twelve.entitir.worldone.skills.SkillRegistry;

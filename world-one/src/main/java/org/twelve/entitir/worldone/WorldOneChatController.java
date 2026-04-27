@@ -9,7 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-import org.twelve.entitir.aip.worldone.ChatEvent;
+import org.twelve.entitir.aip.world.ChatEvent;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -258,13 +258,13 @@ public class WorldOneChatController {
                     String[] currentUiId = { uiSessionId };
                     loop.openApp(appId, extraArgs, ev -> {
                         ChatEvent toSend = ev;
-                        if (ev.type() == org.twelve.entitir.aip.worldone.ChatEvent.Type.TEXT) return;
+                        if (ev.type() == org.twelve.entitir.aip.world.ChatEvent.Type.TEXT) return;
                         try {
-                            if (ev.type() == org.twelve.entitir.aip.worldone.ChatEvent.Type.SESSION) {
+                            if (ev.type() == org.twelve.entitir.aip.world.ChatEvent.Type.SESSION) {
                                 toSend = enrichSessionEvent(ev);
                                 String newUiId = extractUiSessionId(toSend);
                                 if (newUiId != null) currentUiId[0] = newUiId;
-                            } else if (ev.type() == org.twelve.entitir.aip.worldone.ChatEvent.Type.CANVAS) {
+                            } else if (ev.type() == org.twelve.entitir.aip.world.ChatEvent.Type.CANVAS) {
                                 persistCanvasToSession(currentUiId[0], ev.content());
                             }
                             emitter.send(SseEmitter.event().data(toSend.toSseData()));
@@ -276,13 +276,13 @@ public class WorldOneChatController {
                     String[] currentUiId = { uiSessionId };
                     loop.openApp(appId, ev -> {
                         ChatEvent toSend = ev;
-                        if (ev.type() == org.twelve.entitir.aip.worldone.ChatEvent.Type.TEXT) return;
+                        if (ev.type() == org.twelve.entitir.aip.world.ChatEvent.Type.TEXT) return;
                         try {
-                            if (ev.type() == org.twelve.entitir.aip.worldone.ChatEvent.Type.SESSION) {
+                            if (ev.type() == org.twelve.entitir.aip.world.ChatEvent.Type.SESSION) {
                                 toSend = enrichSessionEvent(ev);
                                 String newUiId = extractUiSessionId(toSend);
                                 if (newUiId != null) currentUiId[0] = newUiId;
-                            } else if (ev.type() == org.twelve.entitir.aip.worldone.ChatEvent.Type.CANVAS) {
+                            } else if (ev.type() == org.twelve.entitir.aip.world.ChatEvent.Type.CANVAS) {
                                 persistCanvasToSession(currentUiId[0], ev.content());
                             }
                             emitter.send(SseEmitter.event().data(toSend.toSseData()));

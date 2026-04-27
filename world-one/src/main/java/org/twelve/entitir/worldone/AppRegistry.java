@@ -376,11 +376,21 @@ public class AppRegistry {
             用户每次发出操作指令都必须重新调用相应工具——不能基于历史假设操作已完成。
 
             ════════════════════════════════════════
-            查看/列表类操作规则（html_widget 面板）
+            动态视图查询规则（html_widget / canvas / session 面板）
             ════════════════════════════════════════
-            "列出/查看/显示 …… 列表"等查看类请求，每次都必须重新调用工具，
-            获取最新数据展示给用户——不管历史中是否有过类似的操作记录。
-            这类操作没有副作用，重复调用只会刷新展示，不会产生重复数据。
+            用户请求"列出/查看/显示/打开/进入/管理/配置"某类动态对象时，
+            不要根据历史消息、system prompt 中的示例、记忆内容或你自己的知识直接回答。
+            你必须先判断是否存在匹配的 tool / skill / widget view：
+            - 如果存在，必须调用对应工具获取最新结果。
+            - 如果工具返回 html_widget / canvas / session / view 事件，该界面就是最终展示结果。
+            - 返回界面后，不要再用普通文字复述列表内容。
+            - 如果没有匹配工具，才可以说明"当前没有可用工具展示该内容"。
+
+            动态对象包括但不限于：应用、世界、本体、记忆、任务、会话、decision、action、
+            实体、枚举、配置项、运行状态、日志、用户数据等。
+
+            历史中的列表结果只能说明"曾经展示过"，不能代表当前状态。
+            每一次用户再次请求列表、查看或管理，都必须重新调用工具刷新。
 
             ════════════════════════════════════════
             Session 判断规范
@@ -394,8 +404,8 @@ public class AppRegistry {
     /**
      * Host 自有域：应用（AIPP app / 插件 / 功能模块）。
      *
-     * <p>本段是 host 对 {@code app_list_view} 的 <b>路由声明 + 参数抽取规则 + 清单</b>。
-     * 与 world-entitir 的 world 域声明完全对称，LLM 看到对称结构后能更稳定地做选择。
+     * <p>本段只声明 {@code app_list_view} 的路由与参数语义，不注入当前应用数据。
+     * 应用列表是动态状态，必须由工具实时读取并渲染，不能让 LLM 复述 prompt 快照。
      */
     private String buildAppDomainSection() {
         StringBuilder sb = new StringBuilder();
@@ -409,55 +419,17 @@ public class AppRegistry {
           .append("  - 世界 / 本体 / 本体世界 / ontology —— 交由 world 域\n")
           .append("  - 记忆 / 会话 / 业务流程（入职等）—— 交由对应 app\n")
           .append("  注：若用户说\"记忆相关应用\"，核心词是\"应用\"（记忆只是主题限定），\n")
-          .append("      仍命中本工具，把\"记忆\"作为主题词在清单中语义匹配。\n\n")
-          .append("【ids 参数抽取（强制）】\n")
-          .append("  步骤 1：用户是否带主题/领域词？（\"记忆\"\"memory\"\"本体\"\"HR\" 等）\n")
-          .append("    - 是 → 在【当前应用清单】里做语义匹配（同义词/中英文/近义领域），\n")
-          .append("           把命中的 **真实 app_id** 作为 `ids` 数组传入\n")
-          .append("    - 否 → 省略 `ids`（或传空数组），列出全部\n")
+          .append("      仍命中本工具，把\"记忆\"作为 `query` 交给工具实时过滤。\n\n")
+          .append("【query 参数抽取】\n")
+          .append("  - 用户说\"列出所有应用\"、\"有哪些应用\"等无主题词请求：调用 app_list_view()，不传 query。\n")
+          .append("  - 用户带主题/领域词（如\"记忆相关应用\"、\"HR 应用\"、\"本体相关插件\"）：\n")
+          .append("    调用 app_list_view(query=\"主题词\")，由工具读取最新 registry 后过滤。\n")
+          .append("  - 不要根据 prompt、历史或记忆直接列出应用名称；应用清单是动态数据。\n")
           .append("  正确示例：\n")
-          .append("    用户：\"列出记忆相关应用\"\n");
-        try {
-            List<Map<String, Object>> apps = buildAppsManifests();
-            List<Map<String, Object>> visible = apps.stream()
-                .filter(a -> {
-                    String id = String.valueOf(a.getOrDefault("app_id", ""));
-                    return !"worldone".equals(id) && !"worldone-system".equals(id);
-                })
-                .toList();
-
-            // 示例 app_id（优先用含"memory"或"记忆"的，找不到就用首个）
-            String exampleId = visible.stream()
-                .map(a -> String.valueOf(a.getOrDefault("app_id", "")))
-                .filter(id -> id.toLowerCase().contains("memory") || id.contains("记忆"))
-                .findFirst()
-                .orElseGet(() -> visible.isEmpty()
-                    ? "memory-one"
-                    : String.valueOf(visible.get(0).getOrDefault("app_id", "memory-one")));
-
-            sb.append("    调用：app_list_view(ids=[\"").append(exampleId).append("\"])\n\n")
-              .append("    用户：\"列出所有应用\"\n")
-              .append("    调用：app_list_view()   // 不传 ids\n\n");
-
-            sb.append("【当前应用清单（随请求快照，ids 必须从此清单里选）】\n");
-            if (visible.isEmpty()) {
-                sb.append("  （当前无已注册应用）\n");
-            } else {
-                for (Map<String, Object> a : visible) {
-                    String id   = String.valueOf(a.getOrDefault("app_id", ""));
-                    String name = String.valueOf(a.getOrDefault("app_name", id));
-                    String desc = String.valueOf(a.getOrDefault("app_description", ""));
-                    sb.append("  - ").append(id).append(" — ").append(name);
-                    if (desc != null && !desc.isBlank()) {
-                        sb.append(" — ").append(desc);
-                    }
-                    sb.append("\n");
-                }
-            }
-        } catch (Exception e) {
-            sb.append("    调用：app_list_view(ids=[\"memory-one\"])\n\n")
-              .append("【当前应用清单】\n  （暂不可用：").append(e.getMessage()).append("）\n");
-        }
+          .append("    用户：\"列出记忆相关应用\"\n")
+          .append("    调用：app_list_view(query=\"记忆\")\n\n")
+          .append("    用户：\"列出所有应用\"\n")
+          .append("    调用：app_list_view()   // 不传 query\n\n");
         return sb.toString();
     }
 

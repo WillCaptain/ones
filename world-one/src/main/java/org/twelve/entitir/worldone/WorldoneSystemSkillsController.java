@@ -33,7 +33,8 @@ public class WorldoneSystemSkillsController {
     /**
      * POST /api/tools/app_list_view
      *
-     * <p>参数：{@code args.query}（可选），按名称或描述过滤应用列表。
+     * <p>参数：{@code args.query}（可选），按名称或描述过滤应用列表；
+     * {@code args.ids} 保留用于兼容旧调用。
      * 返回 {@code \{html_widget: \{html, height\}\}} 供 extractEvents 处理。
      */
     @PostMapping("/api/tools/app_list_view")
@@ -41,9 +42,10 @@ public class WorldoneSystemSkillsController {
             @RequestBody(required = false) Map<String, Object> body) {
 
         java.util.Set<String> idSet = extractIdSet(body);
-        List<Map<String, Object>> apps = filterApps(registry.buildAppsManifests(), idSet);
+        String query = extractQuery(body);
+        List<Map<String, Object>> apps = filterApps(registry.buildAppsManifests(), idSet, query);
 
-        String html   = buildHtmlPage(apps, idSet);
+        String html   = buildHtmlPage(apps, idSet, query);
         String height = computeHeight(apps.size());
 
         return ResponseEntity.ok(Map.of(
@@ -61,13 +63,14 @@ public class WorldoneSystemSkillsController {
      */
     @GetMapping(value = "/api/system/widgets/app-list", produces = MediaType.TEXT_HTML_VALUE)
     public String appListPage(
-            @RequestParam(name = "ids", required = false) List<String> ids) {
+            @RequestParam(name = "ids", required = false) List<String> ids,
+            @RequestParam(name = "query", required = false) String query) {
 
         java.util.Set<String> idSet = (ids == null || ids.isEmpty())
             ? null
             : new java.util.LinkedHashSet<>(ids);
-        List<Map<String, Object>> apps = filterApps(registry.buildAppsManifests(), idSet);
-        return buildHtmlPage(apps, idSet);
+        List<Map<String, Object>> apps = filterApps(registry.buildAppsManifests(), idSet, query);
+        return buildHtmlPage(apps, idSet, query);
     }
 
     // ── private helpers ──────────────────────────────────────────────────────
@@ -92,7 +95,17 @@ public class WorldoneSystemSkillsController {
         return null;
     }
 
-    private List<Map<String, Object>> filterApps(List<Map<String, Object>> apps, java.util.Set<String> idSet) {
+    @SuppressWarnings("unchecked")
+    private String extractQuery(Map<String, Object> body) {
+        if (body == null) return "";
+        Object query = body.get("query");
+        if (query == null && body.get("args") instanceof Map<?, ?> a) {
+            query = ((Map<String, Object>) a).get("query");
+        }
+        return query == null ? "" : query.toString().trim();
+    }
+
+    private List<Map<String, Object>> filterApps(List<Map<String, Object>> apps, java.util.Set<String> idSet, String query) {
         // 默认隐藏无入口 widget 的工具型 app，但加载失败的 app 必须可见（用于告警与排障）。
         var visible = apps.stream()
             // worldone 自身及其系统内置 app 不在应用列表展示
@@ -102,10 +115,27 @@ public class WorldoneSystemSkillsController {
             })
             .filter(a -> a.get("main_widget_type") != null || !Boolean.TRUE.equals(a.get("load_ok")))
             .toList();
-        if (idSet == null || idSet.isEmpty()) return visible;
-        return visible.stream()
-            .filter(a -> idSet.contains(str(a.getOrDefault("app_id", ""))))
+        var filtered = (idSet == null || idSet.isEmpty())
+            ? visible
+            : visible.stream()
+                .filter(a -> idSet.contains(str(a.getOrDefault("app_id", ""))))
+                .toList();
+        if (query == null || query.isBlank()) return filtered;
+
+        String q = query.toLowerCase(java.util.Locale.ROOT);
+        return filtered.stream()
+            .filter(a -> searchableText(a).contains(q))
             .toList();
+    }
+
+    private String searchableText(Map<String, Object> app) {
+        return String.join(" ",
+            str(app.getOrDefault("app_id", "")),
+            str(app.getOrDefault("app_name", "")),
+            str(app.getOrDefault("app_description", "")),
+            str(app.getOrDefault("main_widget_type", "")),
+            str(app.getOrDefault("load_error", ""))
+        ).toLowerCase(java.util.Locale.ROOT);
     }
 
     private String computeHeight(int count) {
@@ -115,11 +145,11 @@ public class WorldoneSystemSkillsController {
     }
 
     /** 构建完整 HTML 页面（srcdoc 或直接 src 均可使用）。 */
-    private String buildHtmlPage(List<Map<String, Object>> apps, java.util.Set<String> idSet) {
+    private String buildHtmlPage(List<Map<String, Object>> apps, java.util.Set<String> idSet, String query) {
         StringBuilder cards = new StringBuilder();
 
         if (apps.isEmpty()) {
-            String msg = (idSet == null || idSet.isEmpty())
+            String msg = (idSet == null || idSet.isEmpty()) && (query == null || query.isBlank())
                 ? "暂无已注册应用"
                 : "没有匹配的应用";
             cards.append("<div class=\"empty\">").append(msg).append("</div>");

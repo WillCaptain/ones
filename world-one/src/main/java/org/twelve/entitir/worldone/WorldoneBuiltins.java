@@ -63,21 +63,22 @@ public class WorldoneBuiltins {
         t.put("name", "app_list_view");
         t.put("description",
             "打开 **AIPP 应用（app / 插件 / 功能模块）列表面板**，展示已注册应用。" +
-            "命中条件和 ids 语义过滤的完整规则见 system prompt 中的 " +
-            "\"宿主域：应用\" 段落（含当前应用清单）。" +
+            "命中条件和 query 语义过滤的完整规则见 system prompt 中的 " +
+            "\"宿主域：应用\" 段落。" +
             "简要：用户明说 '应用/app/插件/功能模块' 才可调用；若带主题词" +
-            "（如'记忆/memory/本体/HR'），在注入清单里做语义匹配后把真实 app_id 作为 `ids` 数组传入；" +
+            "（如'记忆/memory/本体/HR'），把主题词作为 `query` 传入，由工具读取最新 registry 并过滤；" +
             "用户说'世界/本体/ontology'时**绝不调用本工具**。");
         t.put("parameters", Map.of(
             "type",       "object",
             "properties", Map.of(
+                "query", Map.of(
+                    "type",        "string",
+                    "description", "可选主题过滤词。用户说'列出所有应用'时省略；用户说'记忆相关应用'时传 `记忆`。"
+                ),
                 "ids", Map.of(
                     "type",        "array",
                     "items",       Map.of("type", "string"),
-                    "description", "要展示的 app_id 列表，**由 LLM 基于 host 注入的应用清单语义选出**。" +
-                                   "示例：用户说'记忆相关应用'且清单里有 `memory-one — 记忆管理`，则传 " +
-                                   "`ids=[\"memory-one\"]`。用户说'列出所有应用'或无相关匹配时省略本参数。" +
-                                   "**必须传清单里真实存在的 app_id，不要编造**。"
+                    "description", "兼容旧协议的精确 app_id 过滤。新调用优先使用 `query`，不要为了回答列表请求编造 ids。"
                 )
             ),
             "required",   List.of()
