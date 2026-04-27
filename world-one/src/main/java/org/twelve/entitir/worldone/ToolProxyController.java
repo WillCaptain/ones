@@ -118,6 +118,11 @@ public class ToolProxyController {
         return forwardToWorldEntitir("/api/code-members", body);
     }
 
+    @PostMapping("/signature-help")
+    public ResponseEntity<?> proxySignatureHelp(@RequestBody Map<String, Object> body) {
+        return forwardToWorldEntitir("/api/signature-help", body);
+    }
+
     @PostMapping("/infer-action-type")
     public ResponseEntity<?> proxyInferActionType(@RequestBody Map<String, Object> body) {
         return forwardToWorldEntitir("/api/infer-action-type", body);

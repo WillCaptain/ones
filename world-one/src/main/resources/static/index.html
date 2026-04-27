@@ -5306,6 +5306,18 @@ function _createTriggerConditionEditor(container, hiddenInput, indicator, initia
       },
       triggerChars: ['.', ' '],
     },
+    signatureHelp: {
+      url: '/api/proxy/signature-help',
+      getExtraBody: (code, offset) => {
+        const w = _deTriggerPrefixForCompletions(code, offset);
+        return {
+          session_id: worldSessionId,
+          entity_type: _deTriggerEntityType(),
+          code: w.code,
+          offset: w.offset,
+        };
+      },
+    },
     diagnostics: {
       validateUrl:    '/api/proxy/validate',
       getRequestBody: code => ({
@@ -5352,6 +5364,18 @@ function _createExecutorBodyEditor(initialValue) {
         };
       },
       triggerChars: ['.', ' '],
+    },
+    signatureHelp: {
+      url: '/api/proxy/signature-help',
+      getExtraBody: (code, offset) => {
+        const w = _deExecutorWrapForAnalysis(code, offset);
+        return {
+          session_id: worldSessionId,
+          entity_type: _deTriggerEntityType(),
+          code: w.code,
+          offset: w.offset,
+        };
+      },
     },
     diagnostics: {
       validateUrl: '/api/proxy/validate',
@@ -6671,6 +6695,19 @@ function ensureMonacoEditor(initialValue, entityType) {
         };
       },
       triggerChars: ['.', ' '],
+    },
+    signatureHelp: {
+      url: '/api/proxy/signature-help',
+      getExtraBody: (code, offset) => {
+        const bodyPrefix = buildActionLambdaPrefix(_aeEntityType) + '{\n';
+        const wrapped = bodyPrefix ? `${bodyPrefix}${code || ''}\n}` : (code || '');
+        return {
+          session_id: worldSessionId,
+          entity_type: _aeEntityType,
+          code: wrapped,
+          offset: (offset || 0) + bodyPrefix.length,
+        };
+      },
     },
     diagnostics: {
       validateUrl:    '/api/proxy/validate',
