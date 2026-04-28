@@ -708,6 +708,14 @@ function bindEvents() {
   if (searchEl) searchEl.addEventListener('input', () => applyFilter());
 }
 
+// Listen to host-emitted "tool completed" events so panels stay fresh after
+// sys.confirm modals etc. trigger a backend tool call.
+function onHostToolCompleted(ev) {
+  const tool = ev && ev.detail && ev.detail.tool;
+  if (!tool) return;
+  if (tool.startsWith && tool.startsWith('memory_')) loadScopeData();
+}
+
 // ── exported lifecycle ─────────────────────────────────────────────────────
 export function mount(targetEl, hostApi, data) {
   ensureStyles();
@@ -721,6 +729,7 @@ export function mount(targetEl, hostApi, data) {
   targetEl.innerHTML = HTML;
   bindEvents();
   populateScopeNav();
+  window.addEventListener('aipp:tool-completed', onHostToolCompleted);
 
   if (typeof window.aippReportView === 'function') {
     window.aippReportView('memory-manager', 'ALL');
@@ -736,6 +745,7 @@ export function mount(targetEl, hostApi, data) {
 }
 
 export function unmount() {
+  window.removeEventListener('aipp:tool-completed', onHostToolCompleted);
   if (_root) _root.innerHTML = '';
   _root = null;
   _hostApi = null;
