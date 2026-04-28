@@ -467,6 +467,18 @@ body.canvas-mode .designer-tab-content { top: 36px; }
 #actions-table tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; transition: background .1s; }
 #actions-table tbody tr:hover { background: var(--surface2); }
 #actions-table td { padding: 7px 10px; vertical-align: middle; }
+.actions-entity-row {
+  background: rgba(124,111,247,.08);
+  cursor: pointer;
+}
+.actions-entity-row:hover { background: rgba(124,111,247,.14) !important; }
+.actions-entity-caret {
+  display: inline-block;
+  width: 14px;
+  color: var(--accent);
+  font-size: 11px;
+}
+.actions-child-row td:first-child { padding-left: 28px !important; }
 .action-decision-chip:hover { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
 .designer-list { overflow-y: auto; height: calc(100% - 41px); padding: 8px 0; }
 .designer-item {
@@ -2264,9 +2276,8 @@ window.addEventListener('DOMContentLoaded', () => {
           <table id="actions-table" style="width:100%;border-collapse:collapse;font-size:12px;">
             <thead>
               <tr style="border-bottom:2px solid var(--border);position:sticky;top:0;background:var(--surface);">
-                <th id="act-th-name"    class="act-th" onclick="toggleActSort('name')"    style="text-align:left;padding:7px 10px;cursor:pointer;user-select:none;width:32%;">Action <span id="act-arrow-name"></span></th>
-                <th id="act-th-refs"                                                       style="text-align:left;padding:7px 8px;user-select:none;width:28%;" data-i18n="act.usedBy">Used by</th>
-                <th id="act-th-entity"  class="act-th" onclick="toggleActSort('entity')"  style="text-align:left;padding:7px 8px;cursor:pointer;user-select:none;width:20%;">Entity <span id="act-arrow-entity"></span></th>
+                <th id="act-th-name"    class="act-th" onclick="toggleActSort('name')"    style="text-align:left;padding:7px 10px;cursor:pointer;user-select:none;width:46%;">Action <span id="act-arrow-name"></span></th>
+                <th id="act-th-refs"                                                       style="text-align:left;padding:7px 8px;user-select:none;width:34%;" data-i18n="act.usedBy">Used by</th>
                 <th id="act-th-updated" class="act-th" onclick="toggleActSort('updated')" style="text-align:left;padding:7px 8px;cursor:pointer;user-select:none;width:20%;">更新时间 <span id="act-arrow-updated"></span></th>
               </tr>
             </thead>
@@ -3096,8 +3107,8 @@ function updateCanvasSessionLabel() {
   const sess = sessionData[currentSessionId];
   const name = sess ? sess.name || currentSessionId : currentSessionId;
   const type = sess?.type || '';
-  const showWorldId = (sess?.widgetType === 'entity-graph' || activeWidgetType === 'entity-graph') && !!worldSessionId;
-  const displayName = showWorldId ? `${name} · ${worldSessionId}` : name;
+  const showWorldId = (sess?.widgetType === 'entity-graph' || activeWidgetType === 'entity-graph') && !!canvasSessionId;
+  const displayName = showWorldId ? `${name} · ${canvasSessionId}` : name;
   const maxLen = 16;
   const truncated = displayName.length > maxLen ? displayName.slice(0, maxLen) + '...' : displayName;
   el.textContent = type ? `${truncated}(${type})` : truncated;
@@ -3123,8 +3134,8 @@ function enterCanvasMode(worldName, widgetType) {
   }
   document.getElementById('mode-badge').textContent = t('mode.canvas');
   if (worldName) {
-    const title = (widgetType === 'entity-graph' && worldSessionId)
-      ? `${worldName} · ${worldSessionId}`
+    const title = (widgetType === 'entity-graph' && canvasSessionId)
+      ? `${worldName} · ${canvasSessionId}`
       : worldName;
     document.getElementById('side-title').textContent = title;
   }
@@ -3881,7 +3892,7 @@ async function pullRuntimeEvents(reset = false) {
     qp.set('env', RUNTIME_ENV);
     qp.set('limit', '100');
     if (!reset && _runtimeFeedState.cursor) qp.set('cursor', _runtimeFeedState.cursor);
-    const url = `/api/proxy/worlds/${encodeURIComponent(worldId)}/runtime-events?` + qp.toString();
+    const url = `/api/proxy/app/world-entitir/api/worlds/${encodeURIComponent(worldId)}/runtime-events?` + qp.toString();
     const data = await fetch(url).then(r => r.json());
     if (reset) {
       const es = sessionData[_runtimeFeedState.eventSessionId];
@@ -3900,7 +3911,7 @@ function _runtimeStreamUrl(worldId, cursor) {
   const qp = new URLSearchParams();
   qp.set('env', RUNTIME_ENV);
   if (cursor) qp.set('cursor', cursor);
-  return `/api/proxy/worlds/${encodeURIComponent(worldId)}/runtime-events/stream?` + qp.toString();
+  return `/api/proxy/app/world-entitir/api/worlds/${encodeURIComponent(worldId)}/runtime-events/stream?` + qp.toString();
 }
 
 function _connectRuntimeEventSse(reset = false) {
@@ -3987,9 +3998,9 @@ function startRuntimeEventFeed(worldId, worldName) {
 // ── Pipeline ────────────────────────────────────────────────────────────────
 
 async function refreshPipelineStatus() {
-  if (!worldSessionId) return;
+  if (!canvasSessionId) return;
   try {
-    const st = await worldProxyTool('world_pipeline_status', { session_id: worldSessionId });
+    const st = await worldProxyTool('world_pipeline_status', { session_id: canvasSessionId });
     if (st && !st.error) {
       _updatePipelineIssueMaps(st.last_build_error ?? null, st.build_warnings ?? []);
       renderPipelineStrip(
@@ -4235,7 +4246,7 @@ async function pipelineBuild() {
   const stagingEl = document.getElementById('pl-staging');
   // Hard-check with latest server state to avoid stale UI allowing repeat clicks.
   try {
-    const st = await worldProxyTool('world_pipeline_status', { session_id: worldSessionId });
+    const st = await worldProxyTool('world_pipeline_status', { session_id: canvasSessionId });
     if (!st || st.error || st.can_build !== true) {
       await refreshPipelineStatus();
       return;
@@ -4252,7 +4263,7 @@ async function pipelineBuild() {
   if (dot) dot.className = 'pl-spinner';
 
   try {
-    const result = await worldProxyTool('world_build', { session_id: worldSessionId });
+    const result = await worldProxyTool('world_build', { session_id: canvasSessionId });
     if (result && result.status === 'built' && stagingEl) {
       // Build success => draft must be clean, disallow immediate repeat click.
       stagingEl.dataset.canBuild = '0';
@@ -4271,7 +4282,7 @@ async function pipelinePromote() {
   const dot = document.getElementById('pl-production-dot');
   if (dot) dot.className = 'pl-spinner';
   try {
-    await worldProxyTool('world_promote', { session_id: worldSessionId });
+    await worldProxyTool('world_promote', { session_id: canvasSessionId });
   } catch (e) { /* ignore */ }
   await refreshPipelineStatus();
 }
@@ -4279,8 +4290,8 @@ async function pipelinePromote() {
 // ── End Pipeline ─────────────────────────────────────────────────────────────
 
 async function loadDecisionsList() {
-  if (!worldSessionId) return;
-  const data = await worldProxyTool('world_list_decisions', { session_id: worldSessionId });
+  if (!canvasSessionId) return;
+  const data = await worldProxyTool('world_list_decisions', { session_id: canvasSessionId });
   const list = document.getElementById('decisions-list');
   const graphEmpty = document.getElementById('decision-graph-empty');
   if (!list) return;
@@ -4528,9 +4539,9 @@ function resetDecisionLayout() {
 
 /** 把当前 decision graph 布局存入 localStorage（key = 世界 session_id）。 */
 function saveDecisionGraphLayout() {
-  if (!worldSessionId) return;
+  if (!canvasSessionId) return;
   try {
-    localStorage.setItem('dgl-' + worldSessionId, JSON.stringify({
+    localStorage.setItem('dgl-' + canvasSessionId, JSON.stringify({
       pos: _decisionGraphNodePos,
       pinned: [..._decisionGraphPinned],
       zoom: _decisionGraphZoom,
@@ -4834,10 +4845,12 @@ function renderDecisionGraph() {
   }
 }
 
-// Actions table sort state: { col: 'name'|'entity'|'updated', dir: 'asc'|'desc' }
-let _actionsSort = { col: 'entity', dir: 'asc' };
+// Actions table sort state inside each entity group: { col: 'name'|'updated', dir: 'asc'|'desc' }
+let _actionsSort = { col: 'name', dir: 'asc' };
+let _actionsEntityCollapsed = new Set();
 
 function toggleActSort(col) {
+  if (col === 'entity') return;
   if (_actionsSort.col === col) {
     _actionsSort.dir = _actionsSort.dir === 'asc' ? 'desc' : 'asc';
   } else {
@@ -4849,7 +4862,7 @@ function toggleActSort(col) {
 let _actionsCache = [];
 
 function _updateActSortArrows() {
-  ['name','entity','updated'].forEach(c => {
+  ['name','updated'].forEach(c => {
     const th  = document.getElementById('act-th-' + c);
     const arr = document.getElementById('act-arrow-' + c);
     if (!th || !arr) return;
@@ -4893,19 +4906,10 @@ function _renderActionsTable(actions) {
   _updateActSortArrows();
 
   if (!actions.length) {
-    tbody.innerHTML = `<tr><td colspan="4" style="padding:20px;color:var(--text-muted);text-align:center;">${t('ae.emptyList')}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="3" style="padding:20px;color:var(--text-muted);text-align:center;">${t('ae.emptyList')}</td></tr>`;
     return;
   }
   const refIndex = _buildActionRefIndex();
-
-  const sorted = [...actions].sort((a, b) => {
-    let va, vb;
-    if (_actionsSort.col === 'name')    { va = a.name;      vb = b.name; }
-    else if (_actionsSort.col === 'entity') { va = a.entityType; vb = b.entityType; }
-    else { va = a.updatedAt || ''; vb = b.updatedAt || ''; }
-    const cmp = va.localeCompare(vb);
-    return _actionsSort.dir === 'asc' ? cmp : -cmp;
-  });
 
   // Currently-known entities in this world (used to populate the reparent dropdown
   // and to detect orphan actions whose entityType no longer exists).
@@ -4913,7 +4917,21 @@ function _renderActionsTable(actions) {
     .filter(n => n.type === 'entity').map(n => n.id).sort();
   const liveEntitySet = new Set(liveEntities);
 
-  tbody.innerHTML = sorted.map(a => {
+  const grouped = new Map();
+  actions.forEach(a => {
+    const entity = a.entityType || 'global';
+    if (!grouped.has(entity)) grouped.set(entity, []);
+    grouped.get(entity).push(a);
+  });
+  const entityNames = [...grouped.keys()].sort((a, b) => {
+    if (a === 'global') return -1;
+    if (b === 'global') return 1;
+    const ao = liveEntitySet.has(a) ? 0 : 1;
+    const bo = liveEntitySet.has(b) ? 0 : 1;
+    return ao !== bo ? ao - bo : a.localeCompare(b);
+  });
+
+  const renderActionRow = (a) => {
     const key = a.entityType + '::' + a.name;
     const issue = a.errorMessage || _actionIssueMap.get(key) || '';
     const hasWarn = !!a.hasError || _actionWarnings.has(key) || !!issue;
@@ -4936,13 +4954,10 @@ function _renderActionsTable(actions) {
         }</div>`
       : `<span style="color:var(--text-muted);font-size:11px;">—</span>`;
     const isOrphan = !liveEntitySet.has(a.entityType);
-    const entityLabel = isOrphan
-      ? `<span title="${escHtml(t('act.orphan.hint') || '宿主 entity 已不存在，打开详情页重新选一个 entity')}" style="color:#ef4444;font-size:11px;">⚠ ${escHtml(a.entityType)} <span style="font-size:10px;opacity:.85;">(${escHtml(t('act.orphan') || 'orphan')})</span></span>`
-      : `<span style="color:var(--accent);font-size:11px;">${escHtml(a.entityType)}</span>`;
     const delBtn = `<button title="${t('act.delete') || '删除 action'}"
         onclick="event.stopPropagation();deleteActionRow('${escHtml(a.entityType)}','${escHtml(a.name)}')"
         style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px;padding:2px 6px;line-height:1;">×</button>`;
-    return `<tr onclick="editAction('${escHtml(a.entityType)}','${escHtml(a.name)}')" style="${isOrphan ? 'background:rgba(239,68,68,.04);' : ''}">
+    return `<tr class="actions-child-row" onclick="editAction('${escHtml(a.entityType)}','${escHtml(a.name)}')" style="${isOrphan ? 'background:rgba(239,68,68,.04);' : ''}">
       <td style="padding:6px 10px;">
         <div style="display:flex;align-items:center;gap:4px;">
           <div style="font-weight:600;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;">${escHtml(a.name)}${warn}${widgetMark}</div>
@@ -4951,15 +4966,43 @@ function _renderActionsTable(actions) {
         <div style="font-size:10px;color:var(--text-dim);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;">${escHtml(sigShort)}</div>
       </td>
       <td style="padding:6px 8px;">${refChips}</td>
-      <td style="padding:6px 8px;">${entityLabel}</td>
       <td style="color:var(--text-muted);font-size:11px;white-space:nowrap;padding:6px 8px;">${escHtml(timeStr)}</td>
     </tr>`;
+  };
+
+  tbody.innerHTML = entityNames.map(entity => {
+    const rows = grouped.get(entity) || [];
+    rows.sort((a, b) => {
+      const va = _actionsSort.col === 'updated' ? (a.updatedAt || '') : (a.name || '');
+      const vb = _actionsSort.col === 'updated' ? (b.updatedAt || '') : (b.name || '');
+      const cmp = va.localeCompare(vb);
+      return _actionsSort.dir === 'asc' ? cmp : -cmp;
+    });
+    const collapsed = _actionsEntityCollapsed.has(entity);
+    const isOrphanEntity = entity !== 'global' && !liveEntitySet.has(entity);
+    const entityLabel = isOrphanEntity
+      ? `<span title="${escHtml(t('act.orphan.hint') || '宿主 entity 已不存在，打开详情页重新选一个 entity')}" style="color:#ef4444;">⚠ ${escHtml(entity)} <span style="font-size:10px;opacity:.85;">(${escHtml(t('act.orphan') || 'orphan')})</span></span>`
+      : `<span style="color:var(--accent);">${escHtml(entity)}</span>`;
+    const groupRow = `<tr class="actions-entity-row" onclick="toggleActionEntityGroup('${escHtml(entity)}')">
+      <td colspan="3" style="padding:7px 10px;font-weight:700;">
+        <span class="actions-entity-caret">${collapsed ? '▶' : '▼'}</span>
+        ${entityLabel}
+        <span style="margin-left:8px;color:var(--text-muted);font-weight:500;font-size:11px;">${rows.length} action${rows.length === 1 ? '' : 's'}</span>
+      </td>
+    </tr>`;
+    return groupRow + (collapsed ? '' : rows.map(renderActionRow).join(''));
   }).join('');
+}
+
+function toggleActionEntityGroup(entityType) {
+  if (_actionsEntityCollapsed.has(entityType)) _actionsEntityCollapsed.delete(entityType);
+  else _actionsEntityCollapsed.add(entityType);
+  _renderActionsTable(_actionsCache || []);
 }
 
 /** Row-level handler: delete an action (confirms if referenced by decisions). */
 async function deleteActionRow(entityType, actionName) {
-  if (!worldSessionId) return;
+  if (!canvasSessionId) return;
   const key = entityType + '::' + actionName;
   const refs = _buildActionRefIndex().get(key) || [];
   const refText = refs.length
@@ -4969,7 +5012,7 @@ async function deleteActionRow(entityType, actionName) {
   if (!ok) return;
   try {
     const r = await worldProxyTool('world_remove_action', {
-      session_id: worldSessionId,
+      session_id: canvasSessionId,
       entity_type: entityType,
       action_name: actionName,
     });
@@ -4981,12 +5024,12 @@ async function deleteActionRow(entityType, actionName) {
 }
 
 async function loadActionsList() {
-  if (!worldSessionId) return;
+  if (!canvasSessionId) return;
   // Load actions; also refresh the decisions cache so we can render the
   // "referenced by" chips under each action row (reverse index).
   const [data, decData] = await Promise.all([
-    worldProxyTool('world_list_actions', { session_id: worldSessionId }),
-    worldProxyTool('world_list_decisions', { session_id: worldSessionId }),
+    worldProxyTool('world_list_actions', { session_id: canvasSessionId }),
+    worldProxyTool('world_list_decisions', { session_id: canvasSessionId }),
   ]);
   if (decData && Array.isArray(decData.templates)) {
     const templates = decData.templates.map(t => {
@@ -5294,11 +5337,11 @@ function _createTriggerConditionEditor(container, hiddenInput, indicator, initia
   return OutlineLang.createEditor(container, {
     value: initialValue || '',
     completions: {
-      url: '/api/proxy/completions',
+      url: '/api/proxy/app/world-entitir/api/completions',
       getExtraBody: (code, offset) => {
         const w = _deTriggerPrefixForCompletions(code, offset);
         return {
-          session_id: worldSessionId,
+          session_id: canvasSessionId,
           entity_type: _deTriggerEntityType(),
           code: w.code,
           offset: w.offset,
@@ -5307,11 +5350,11 @@ function _createTriggerConditionEditor(container, hiddenInput, indicator, initia
       triggerChars: ['.', ' '],
     },
     signatureHelp: {
-      url: '/api/proxy/signature-help',
+      url: '/api/proxy/app/world-entitir/api/signature-help',
       getExtraBody: (code, offset) => {
         const w = _deTriggerPrefixForCompletions(code, offset);
         return {
-          session_id: worldSessionId,
+          session_id: canvasSessionId,
           entity_type: _deTriggerEntityType(),
           code: w.code,
           offset: w.offset,
@@ -5319,9 +5362,9 @@ function _createTriggerConditionEditor(container, hiddenInput, indicator, initia
       },
     },
     diagnostics: {
-      validateUrl:    '/api/proxy/validate',
+      validateUrl:    '/api/proxy/app/world-entitir/api/validate',
       getRequestBody: code => ({
-        session_id: worldSessionId,
+        session_id: canvasSessionId,
         code: _deTriggerWrapCode(code),
         entity_type: _deTriggerEntityType(),
       }),
@@ -5353,11 +5396,11 @@ function _createExecutorBodyEditor(initialValue) {
   return OutlineLang.createEditor(container, {
     value: initialValue || '',
     completions: {
-      url: '/api/proxy/completions',
+      url: '/api/proxy/app/world-entitir/api/completions',
       getExtraBody: (code, offset) => {
         const w = _deExecutorWrapForAnalysis(code, offset);
         return {
-          session_id: worldSessionId,
+          session_id: canvasSessionId,
           entity_type: _deTriggerEntityType(),
           code: w.code,
           offset: w.offset,
@@ -5366,11 +5409,11 @@ function _createExecutorBodyEditor(initialValue) {
       triggerChars: ['.', ' '],
     },
     signatureHelp: {
-      url: '/api/proxy/signature-help',
+      url: '/api/proxy/app/world-entitir/api/signature-help',
       getExtraBody: (code, offset) => {
         const w = _deExecutorWrapForAnalysis(code, offset);
         return {
-          session_id: worldSessionId,
+          session_id: canvasSessionId,
           entity_type: _deTriggerEntityType(),
           code: w.code,
           offset: w.offset,
@@ -5378,9 +5421,9 @@ function _createExecutorBodyEditor(initialValue) {
       },
     },
     diagnostics: {
-      validateUrl: '/api/proxy/validate',
+      validateUrl: '/api/proxy/app/world-entitir/api/validate',
       getRequestBody: code => ({
-        session_id: worldSessionId,
+        session_id: canvasSessionId,
         code: _deExecutorWrapCode(code),
         entity_type: _deTriggerEntityType(),
       }),
@@ -5458,10 +5501,10 @@ async function _deTriggerInferEditor(editor, indicator) {
   try {
     const fullCode   = _deTriggerWrapCode(body);
     const entityType = _deTriggerEntityType();
-    const res = await fetch('/api/proxy/infer-action-type', {
+    const res = await fetch('/api/proxy/app/world-entitir/api/infer-action-type', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: fullCode, session_id: worldSessionId, entity_type: entityType })
+      body: JSON.stringify({ code: fullCode, session_id: canvasSessionId, entity_type: entityType })
     });
     if (!res.ok) throw new Error('infer-action-type failed');
     const d    = await res.json();
@@ -5848,7 +5891,7 @@ function openDecisionEditor(template) {
   _installDecisionHoverFallback();
 
   // Pre-load registered actions into cache for actionDef dropdowns
-  worldProxyTool('world_list_actions', { session_id: worldSessionId })
+  worldProxyTool('world_list_actions', { session_id: canvasSessionId })
     .then(d => {
       _deActionsCache = (d?.actions || []).map(a => {
         const obj = (typeof a === 'string') ? JSON.parse(a) : a;
@@ -5966,7 +6009,7 @@ function _deScheduleExecutorInfer() {
 
 async function _deInferExecutorReturnNow() {
   _deExecutorInferTimer = null;
-  if (!worldSessionId || _deActivatorType() !== 'ontology') return;
+  if (!canvasSessionId || _deActivatorType() !== 'ontology') return;
   _deEnsureExecutorDefaults(false);
   const inputType = (document.getElementById('de-exec-input-type')?.value || '').trim();
   const code = ((_deExecutorEditorHandle?.editor?.getValue?.()) || document.getElementById('de-exec-code')?.value || '').trim();
@@ -5980,7 +6023,7 @@ async function _deInferExecutorReturnNow() {
   _deSetExecutorStatus('busy', 'inferring…');
   try {
     const body = await worldProxyTool('world_infer_decision_executor', {
-      session_id: worldSessionId,
+      session_id: canvasSessionId,
       inputType,
       code,
     });
@@ -6004,7 +6047,7 @@ async function _deInferExecutorReturnNow() {
 }
 
 async function _deValidateExecutorNow() {
-  if (!worldSessionId) return;
+  if (!canvasSessionId) return;
   _deEnsureExecutorDefaults(false);
   const inputType = (document.getElementById('de-exec-input-type')?.value || '').trim();
   const outputType = (document.getElementById('de-exec-output-type')?.value || '').trim();
@@ -6023,7 +6066,7 @@ async function _deValidateExecutorNow() {
   _deSetExecutorStatus('busy');
   try {
     const body = await worldProxyTool('world_validate_decision_executor', {
-      session_id: worldSessionId,
+      session_id: canvasSessionId,
       inputType,
       outputType,
       code,
@@ -6056,7 +6099,7 @@ async function _deDoAutosave() {
     if (_deMode === 'new') {
       res = await fetch('/api/proxy/tools/world_add_decision', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ args: { session_id: worldSessionId, definition } })
+        body: JSON.stringify({ args: { session_id: canvasSessionId, definition } })
       });
       body = await res.json();
       if (res.ok && !body?.error) {
@@ -6066,7 +6109,7 @@ async function _deDoAutosave() {
         document.getElementById('de-title').textContent = tpl.id;
       }
     } else {
-      const payload = { session_id: worldSessionId, template_id: _deOrigId, definition };
+      const payload = { session_id: canvasSessionId, template_id: _deOrigId, definition };
       if (_deVersion != null) payload.version = _deVersion;
       res = await fetch('/api/proxy/tools/world_modify_decision', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -6120,8 +6163,8 @@ let _monacoEditor = null;
 let _scheduleDiagnostics = null;
 
 function _typeMapUrl() {
-  return worldSessionId
-    ? `/api/proxy/schema-types?session_id=${encodeURIComponent(worldSessionId)}`
+  return canvasSessionId
+    ? `/api/proxy/app/world-entitir/api/schema-types?session_id=${encodeURIComponent(canvasSessionId)}`
     : null;
 }
 
@@ -6253,7 +6296,7 @@ function _matchExecList(listObj, value) {
 
 function _filterExecutorRegsForAction(entityType) {
   const et = (entityType || '').trim();
-  const wid = (worldSessionId || '').trim();
+  const wid = (canvasSessionId || '').trim();
   return (_executorRegs || []).filter(reg => {
     const widgets = Array.isArray(reg.widgets) ? reg.widgets : [];
     const hasArgWidget = widgets.some(w => w && w.usage === 'argument_input' && w.widget_type);
@@ -6531,15 +6574,15 @@ async function _doInferActionType() {
   const bodyCode   = (_monacoEditor && document.getElementById('ae-code-editor')?.offsetParent !== null)
                      ? _monacoEditor.getValue().trim()
                      : (document.getElementById('ae-code')?.value || '').trim();
-  if (!bodyCode || !worldSessionId) return false;
+  if (!bodyCode || !canvasSessionId) return false;
   const inferCode = _aeWrapBodyForInfer(bodyCode, entityType);
   if (!inferCode) return false;
 
   try {
-    const res = await fetch('/api/proxy/infer-action-type', {
+    const res = await fetch('/api/proxy/app/world-entitir/api/infer-action-type', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: worldSessionId, code: inferCode, entity_type: entityType || undefined }),
+      body: JSON.stringify({ session_id: canvasSessionId, code: inferCode, entity_type: entityType || undefined }),
     });
     if (!res.ok) return false;
     const data = await res.json();
@@ -6570,16 +6613,16 @@ function _installActionHoverFallback() {
   OutlineLang.setTypeMap({});
 
   OutlineLang.setHoverFallback(async (word, code, offset) => {
-    if (!worldSessionId) return null;
+    if (!canvasSessionId) return null;
     const bodyPrefix = buildActionLambdaPrefix(_aeEntityType) + '{\n';
     const wrappedCode = `${bodyPrefix}${code || ''}\n}`;
     const wrappedOffset = (offset || 0) + bodyPrefix.length;
     try {
-      const resp = await fetch('/api/proxy/code-hover', {
+      const resp = await fetch('/api/proxy/app/world-entitir/api/code-hover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          session_id: worldSessionId, code: wrappedCode, offset: wrappedOffset,
+          session_id: canvasSessionId, code: wrappedCode, offset: wrappedOffset,
           entity_type: _aeEntityType || undefined,
         }),
       });
@@ -6593,17 +6636,17 @@ function _installActionHoverFallback() {
 function _installDecisionHoverFallback() {
   OutlineLang.setTypeMap({});
   OutlineLang.setHoverFallback(async (word, code, offset) => {
-    if (!worldSessionId) return null;
+    if (!canvasSessionId) return null;
     const entityType = _deTriggerEntityType() || undefined;
     const wrapped = _deHoverMode === 'executor'
       ? _deExecutorWrapForAnalysis(code, offset)
       : _deTriggerWrapForAnalysis(code, offset);
     try {
-      const resp = await fetch('/api/proxy/code-hover', {
+      const resp = await fetch('/api/proxy/app/world-entitir/api/code-hover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          session_id: worldSessionId,
+          session_id: canvasSessionId,
           code: wrapped.code,
           offset: wrapped.offset,
           entity_type: entityType,
@@ -6620,11 +6663,11 @@ function _installDecisionHoverFallback() {
 
     // Member fallback: query by receiver expression, does not depend on full-code inference success.
     try {
-      const mResp = await fetch('/api/proxy/code-members', {
+      const mResp = await fetch('/api/proxy/app/world-entitir/api/code-members', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          session_id: worldSessionId,
+          session_id: canvasSessionId,
           code: wrapped.code,
           offset: wrapped.offset,
           entity_type: entityType,
@@ -6654,11 +6697,11 @@ function _installDecisionHoverFallback() {
     const cachedOffset = _deFindWordOffsetInCode(cached.code, word);
     if (cachedOffset < 0) return null;
     try {
-      const resp2 = await fetch('/api/proxy/code-hover', {
+      const resp2 = await fetch('/api/proxy/app/world-entitir/api/code-hover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          session_id: worldSessionId,
+          session_id: canvasSessionId,
           code: cached.code,
           offset: cachedOffset,
           entity_type: cached.entity_type,
@@ -6683,12 +6726,12 @@ function ensureMonacoEditor(initialValue, entityType) {
   return OutlineLang.createEditor(document.getElementById('ae-code-editor'), {
     value: initialValue || '',
     completions: {
-      url: '/api/proxy/completions',
+      url: '/api/proxy/app/world-entitir/api/completions',
       getExtraBody: (code, offset) => {
         const bodyPrefix = buildActionLambdaPrefix(_aeEntityType) + '{\n';
         const wrapped = bodyPrefix ? `${bodyPrefix}${code || ''}\n}` : (code || '');
         return {
-          session_id: worldSessionId,
+          session_id: canvasSessionId,
           entity_type: _aeEntityType,
           code: wrapped,
           offset: (offset || 0) + bodyPrefix.length,
@@ -6697,12 +6740,12 @@ function ensureMonacoEditor(initialValue, entityType) {
       triggerChars: ['.', ' '],
     },
     signatureHelp: {
-      url: '/api/proxy/signature-help',
+      url: '/api/proxy/app/world-entitir/api/signature-help',
       getExtraBody: (code, offset) => {
         const bodyPrefix = buildActionLambdaPrefix(_aeEntityType) + '{\n';
         const wrapped = bodyPrefix ? `${bodyPrefix}${code || ''}\n}` : (code || '');
         return {
-          session_id: worldSessionId,
+          session_id: canvasSessionId,
           entity_type: _aeEntityType,
           code: wrapped,
           offset: (offset || 0) + bodyPrefix.length,
@@ -6710,8 +6753,8 @@ function ensureMonacoEditor(initialValue, entityType) {
       },
     },
     diagnostics: {
-      validateUrl:    '/api/proxy/validate',
-      getRequestBody: code => ({ session_id: worldSessionId, code: buildActionLambdaFromBody(code, _aeEntityType), entity_type: _aeEntityType }),
+      validateUrl:    '/api/proxy/app/world-entitir/api/validate',
+      getRequestBody: code => ({ session_id: canvasSessionId, code: buildActionLambdaFromBody(code, _aeEntityType), entity_type: _aeEntityType }),
     },
     typeMapUrl: _typeMapUrl(),
   }).then(handle => {
@@ -6804,12 +6847,12 @@ function handleUploadFileSelected(event) {
 }
 
 async function refreshEntityGraph() {
-  if (!worldSessionId) return;
+  if (!canvasSessionId) return;
   try {
     const result = await fetch('/api/proxy/tools/world_get_design', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ args: { session_id: worldSessionId } }),
+      body: JSON.stringify({ args: { session_id: canvasSessionId } }),
     }).then(r => r.json());
     const canvas = result.canvas;
     if (canvas && canvas.props) {
@@ -6855,7 +6898,7 @@ async function editAction(entityType, actionName) {
   document.getElementById('ae-title').textContent = `${LANG === 'zh' ? '编辑' : 'Edit'} ${entityType}::${actionName}`;
   document.getElementById('ae-error').style.display = 'none';
   // load existing action via proxy
-  const data = await worldProxyTool('world_list_actions', { session_id: worldSessionId });
+  const data = await worldProxyTool('world_list_actions', { session_id: canvasSessionId });
   const actions = data?.actions || [];
   const found = actions.find(a => a.entityType === entityType && a.name === actionName);
   _aeExistingResilient = !!found?.resilient;
@@ -6974,13 +7017,13 @@ function buildFullSchemaCode() {
 async function loadSchemaEditor() {
   setSchemaStatus('加载中…');
   try {
-    if (!worldSessionId) {
+    if (!canvasSessionId) {
       await ensureSchemaEditor('// 暂无会话\n');
       setSchemaStatus('Outline Schema（只读）');
       return;
     }
     const outlineRes = await fetch(
-      `/api/proxy/session-outline?session_id=${encodeURIComponent(worldSessionId)}`);
+      `/api/proxy/app/world-entitir/api/session-outline?session_id=${encodeURIComponent(canvasSessionId)}`);
     if (!outlineRes.ok) throw new Error(`HTTP ${outlineRes.status}`);
     const data = await outlineRes.json();
     await ensureSchemaEditor(data.outline || '// 暂无定义\n');
@@ -7003,8 +7046,8 @@ function ensureSchemaEditor(value) {
     value: value || '',
     readOnly: true,
     diagnostics: {
-      validateUrl:    '/api/proxy/schema-validate',
-      getRequestBody: code => ({ session_id: worldSessionId, code }),
+      validateUrl:    '/api/proxy/app/world-entitir/api/schema-validate',
+      getRequestBody: code => ({ session_id: canvasSessionId, code }),
       debounceMs:     800,
       markerOwner:    'schema-lint',
     },
@@ -7086,13 +7129,13 @@ async function saveAction() {
   try {
     let result;
     if (_aeMode === 'new') {
-      result = await worldProxyTool('world_register_action', { session_id: worldSessionId, definition: spec });
+      result = await worldProxyTool('world_register_action', { session_id: canvasSessionId, definition: spec });
     } else {
       // If the user changed the host entity (reparent), do the move first so the
       // subsequent modify can look up the action under its new key.
       if (entityType && _aeOrigEntityType && entityType !== _aeOrigEntityType) {
         const mv = await worldProxyTool('world_move_action', {
-          session_id: worldSessionId,
+          session_id: canvasSessionId,
           from_entity: _aeOrigEntityType,
           to_entity:   entityType,
           action_name: _aeOrigActionName,
@@ -7101,7 +7144,7 @@ async function saveAction() {
         _aeOrigEntityType = entityType; // follow-up modify targets the new key
       }
       result = await worldProxyTool('world_modify_action', {
-        session_id: worldSessionId,
+        session_id: canvasSessionId,
         entity_type: _aeOrigEntityType,
         action_name: _aeOrigActionName,
         definition: spec
@@ -7143,7 +7186,7 @@ async function saveAction() {
  * 其中 entity 实例作为隐式接收者（paramType 通常为 "Unit"）。
  */
 async function _syncActionToEntityDefinition(entityType, actionName, signature, scope, parameters, origActionName) {
-  if (!entityType || !actionName || entityType === 'global' || !worldSessionId) return;
+  if (!entityType || !actionName || entityType === 'global' || !canvasSessionId) return;
   const node = (graphState.nodes || []).find(n => n.id === entityType);
   if (!node || !node.definition) return;
 
@@ -7187,7 +7230,7 @@ async function _syncActionToEntityDefinition(entityType, actionName, signature, 
     const res = await fetch('/api/proxy/tools/world_modify_definition', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ args: { session_id: worldSessionId, class: entityType, definition: newDef } }),
+      body: JSON.stringify({ args: { session_id: canvasSessionId, class: entityType, definition: newDef } }),
     });
     const data = await res.json();
     if (data.canvas) handleCanvasCommand(data.canvas);
@@ -7207,7 +7250,7 @@ function editDecision(templateId) {
     openDecisionEditor(cached);
   } else {
     // fetch from backend then open
-    worldProxyTool('world_get_decision', { session_id: worldSessionId, template_id: templateId })
+    worldProxyTool('world_get_decision', { session_id: canvasSessionId, template_id: templateId })
       .then(data => {
         let tpl = data;
         if (typeof tpl === 'string') { try { tpl = JSON.parse(tpl); } catch(e) {} }
@@ -7285,8 +7328,8 @@ async function switchSession(targetId) {
       activeWidgetType = next.widgetType || 'entity-graph';
     }
     if (next.name) {
-      const title = (next.widgetType === 'entity-graph' && (next.canvasSessionId || worldSessionId))
-        ? `${next.name} · ${next.canvasSessionId || worldSessionId}`
+      const title = (next.widgetType === 'entity-graph' && (next.canvasSessionId || canvasSessionId))
+        ? `${next.name} · ${next.canvasSessionId || canvasSessionId}`
         : next.name;
       document.getElementById('side-title').textContent = title;
     }
@@ -7325,13 +7368,13 @@ async function switchSession(targetId) {
       renderMemoryPanel(next.memoryState || []);
     } else {
       // entity-graph canvas restoration
-      // 恢复 worldSessionId（直接工具调用所需）
+      // 恢复 canvasSessionId（直接工具调用所需）
       if (next.canvasSessionId) {
-        worldSessionId = next.canvasSessionId;
+        canvasSessionId = next.canvasSessionId;
         OutlineLang.invalidateTypeMap();
         OutlineLang.loadTypeMap(_typeMapUrl());
-        loadGraphLayout(worldSessionId);
-        loadDecisionGraphLayout(worldSessionId);
+        loadGraphLayout(canvasSessionId);
+        loadDecisionGraphLayout(canvasSessionId);
       }
       const hasGraphData = next.graphState && next.graphState.nodes && next.graphState.nodes.length > 0;
       if (!hasGraphData && next.canvasSessionId) {
@@ -7357,11 +7400,11 @@ async function switchSession(targetId) {
         renderGraph();
       }
       // entity-graph 含三 Tab：恢复时额外加载 decisions / actions 列表 + pipeline 状态
-      if (worldSessionId) {
+      if (canvasSessionId) {
         loadDecisionsList();
         loadActionsList();
         refreshPipelineStatus();
-        startRuntimeEventFeed(worldSessionId, next.name);
+        startRuntimeEventFeed(canvasSessionId, next.name);
       }
     }
   } else if (!(targetId === 'main' && _runtimeFeedState.worldId)) {
@@ -7674,7 +7717,7 @@ function handleSessionEvent(data, triggerMsg) {
 }
 
 // ─── Canvas command ───────────────────────────────────────────────────────────
-let worldSessionId = null;  // world-entitir session_id, for direct tool calls
+let canvasSessionId = null;  // world-entitir session_id, for direct tool calls
 
 function handleCanvasCommand(cmd) {
   console.log('[CANVAS CMD]', JSON.stringify(cmd));
@@ -7700,13 +7743,13 @@ function handleCanvasCommand(cmd) {
   const isDesigner = true;  // entity-graph 始终是 world designer
 
   // store design session_id for inline editing
-  if (cmd.session_id && cmd.session_id !== worldSessionId) {
-    worldSessionId = cmd.session_id;
+  if (cmd.session_id && cmd.session_id !== canvasSessionId) {
+    canvasSessionId = cmd.session_id;
     OutlineLang.invalidateTypeMap();
     OutlineLang.loadTypeMap(_typeMapUrl());
-    loadGraphLayout(worldSessionId);
-    loadDecisionGraphLayout(worldSessionId);
-    startRuntimeEventFeed(worldSessionId, cmd.session_name || props?.session_name || sessionData[currentSessionId]?.name);
+    loadGraphLayout(canvasSessionId);
+    loadDecisionGraphLayout(canvasSessionId);
+    startRuntimeEventFeed(canvasSessionId, cmd.session_name || props?.session_name || sessionData[currentSessionId]?.name);
   }
 
   // entity-graph patch for decisions/actions tab
@@ -8412,22 +8455,14 @@ function buildMsgEl(role, text, preHtml, thinking = null) {
   return div;
 }
 
-// ── 工具名 → 简短中文标签（live progress chip 显示用）────────────────────
-const TOOL_LABELS = {
-  world_design:             '创建设计',
-  world_get_design:         '读取设计',
-  world_get_definition:     '查询定义',
-  world_add_definition:     '添加类',
-  world_modify_definition:  '修改类',
-  world_remove_definition:  '删除类',
-  world_validate:           '验证',
-  world_build:              '构建',
-  world_archive:            '归档',
-  world_list:               '扫描可用世界',
-  world_get_entity_types:   '读取实体类型',
-  world_entity_change:      '发布实体变更',
-  world_promote:            '提升到生产环境',
-};
+// ── 工具名 → 简短中文标签（Host 解耦：动态 fetch /api/tool-labels）─────────
+let TOOL_LABELS = {};
+(async function _loadToolLabels() {
+  try {
+    const r = await fetch('/api/tool-labels');
+    if (r.ok) TOOL_LABELS = await r.json();
+  } catch (e) { /* 静默：未注册任何 display_label_zh 时为空字典，回退到工具名 */ }
+})();
 function toolLabel(name) { return TOOL_LABELS[name] || name; }
 
 // ── Message action helpers ────────────────────────────────────────────────
@@ -9132,7 +9167,7 @@ async function saveSessionRename(id, newName) {
   const worldId = sessionData[id]?.canvasSessionId;
   if (worldId) {
     try {
-      await fetch(`/api/proxy/worlds/${encodeURIComponent(worldId)}/rename`, {
+      await fetch(`/api/proxy/app/world-entitir/api/worlds/${encodeURIComponent(worldId)}/rename`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName }),
@@ -9148,7 +9183,7 @@ function beginRenameNdTitle(ev) {
   const titleEl = document.getElementById('nd-title');
   if (!titleEl) return;
   const oldName = selectedNodeId;
-  if (!oldName || !worldSessionId) return;
+  if (!oldName || !canvasSessionId) return;
   const node = graphState.nodes?.find(n => n.id === oldName);
   if (!node) return;
   // 重命名只改 draft definition；live/staging 快照是独立的发布产物，build/promote 才会推进。
@@ -9161,7 +9196,7 @@ function beginRenameNdTitle(ev) {
     setNdStatus('…', 'var(--text-muted)');
     const res = await fetch('/api/proxy/tools/world_rename_class', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({args: {session_id: worldSessionId, class: oldName, new_class: newName}}),
+      body: JSON.stringify({args: {session_id: canvasSessionId, class: oldName, new_class: newName}}),
     });
     const data = await res.json();
     if (data.error) {
@@ -9199,8 +9234,8 @@ function beginRenameNdTitle(ev) {
 /** 计算 canvas 模式的 side-title 完整文本（含 · sessionId 后缀）。 */
 function _canvasSideTitle(name) {
   if (!name) return '';
-  return (activeWidgetType === 'entity-graph' && worldSessionId)
-    ? `${name} · ${worldSessionId}`
+  return (activeWidgetType === 'entity-graph' && canvasSessionId)
+    ? `${name} · ${canvasSessionId}`
     : name;
 }
 
@@ -9261,9 +9296,9 @@ let _graphFitDone    = false;      // auto-fit runs once per loaded session (rea
 
 /** 把当前布局存入 localStorage，key = 世界 session_id */
 function saveGraphLayout() {
-  if (!worldSessionId) return;
+  if (!canvasSessionId) return;
   try {
-    localStorage.setItem('gl-' + worldSessionId, JSON.stringify({
+    localStorage.setItem('gl-' + canvasSessionId, JSON.stringify({
       pos: graphNodePos, pinned: [...graphNodePinned],
       edgeKey: graphNodeEdgeKey, layoutKey: graphLayoutKey, zoom: graphZoom,
       groups: graphNodeGroups,
@@ -9901,7 +9936,7 @@ function renderOutline() {
  * Prompts for a PascalCase class name, posts world_add_definition, refreshes the graph.
  */
 async function addOntologyClass(kind) {
-  if (!worldSessionId) return;
+  if (!canvasSessionId) return;
   const isEnum = kind === 'enum';
   const promptMsg = isEnum
     ? (LANG === 'zh' ? '新枚举名（PascalCase，例：Status）：' : 'New enum name (PascalCase, e.g. Status):')
@@ -9916,7 +9951,7 @@ async function addOntologyClass(kind) {
     ? { class: name, 'class type': 'enum', values: [] }
     : { class: name, 'class type': 'entity', plural: name + 's', module: 'default', fields: { name: 'String' } };
   const res = await worldProxyTool('world_add_definition', {
-    session_id: worldSessionId,
+    session_id: canvasSessionId,
     definition: JSON.stringify(def),
   });
   if (res && res.error) {
@@ -9944,13 +9979,13 @@ async function addOntologyClass(kind) {
 
 /** Delete an entity / enum after confirmation. */
 async function removeOntologyClass(className) {
-  if (!worldSessionId || !className) return;
+  if (!canvasSessionId || !className) return;
   // List actions currently hosted on this entity — they will become orphans
   // (reparent strategy) and need user attention in the Action Tab.
   // Fetch fresh: user may not have visited Action Tab yet, so the cache may be stale.
   let freshActions = _actionsCache || [];
   try {
-    const d = await worldProxyTool('world_list_actions', { session_id: worldSessionId });
+    const d = await worldProxyTool('world_list_actions', { session_id: canvasSessionId });
     if (d && Array.isArray(d.actions)) {
       freshActions = d.actions.map(a => {
         const o = typeof a === 'string' ? JSON.parse(a) : a;
@@ -9972,7 +10007,7 @@ async function removeOntologyClass(className) {
     + orphanNote;
   if (!confirm(msg)) return;
   const res = await worldProxyTool('world_remove_definition', {
-    session_id: worldSessionId,
+    session_id: canvasSessionId,
     class: className,
   });
   if (res && res.error) {
@@ -10320,7 +10355,7 @@ function showNodeDetail(id) {
             const res = await fetch('/api/proxy/tools/world_modify_definition', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ args: { session_id: worldSessionId, class: node.id, definition: newDef } }),
+              body: JSON.stringify({ args: { session_id: canvasSessionId, class: node.id, definition: newDef } }),
             });
             const data = await res.json();
             if (data.error) {
@@ -10538,7 +10573,7 @@ function ndGetEditFields() {
 }
 
 async function saveFieldEdits(nodeId) {
-  if (!worldSessionId) return;  // session 未就绪时静默跳过（已由 applyFieldsToGraph 做视觉更新）
+  if (!canvasSessionId) return;  // session 未就绪时静默跳过（已由 applyFieldsToGraph 做视觉更新）
   const node = graphState.nodes?.find(n => n.id === nodeId);
   if (!node?.definition) return;
 
@@ -10569,7 +10604,7 @@ async function saveFieldEdits(nodeId) {
     const res = await fetch('/api/proxy/tools/world_modify_definition', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ args: { session_id: worldSessionId, class: nodeId, definition: newDef } }),
+      body: JSON.stringify({ args: { session_id: canvasSessionId, class: nodeId, definition: newDef } }),
     });
     const data = await res.json();
     if (data.error) {
@@ -10642,7 +10677,7 @@ function scheduleEnumSave(nodeId) {
 }
 
 async function saveEnumValues(nodeId) {
-  if (!worldSessionId) return;
+  if (!canvasSessionId) return;
   const node = graphState.nodes?.find(n => n.id === nodeId);
   if (!node?.definition) return;
   let defObj;
@@ -10656,7 +10691,7 @@ async function saveEnumValues(nodeId) {
   try {
     const res = await fetch('/api/proxy/tools/world_modify_definition', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({args: {session_id: worldSessionId, class: nodeId, definition: newDef}}),
+      body: JSON.stringify({args: {session_id: canvasSessionId, class: nodeId, definition: newDef}}),
     });
     const data = await res.json();
     if (data.error) { setNdStatus('⚠ '+data.error, 'var(--danger)'); return; }
@@ -10760,7 +10795,7 @@ function _ndActTipHide() {
 async function _ndLoadAndRenderActions(entityId, wrap) {
   wrap.innerHTML = '<div style="font-size:11px;color:var(--text-dim);padding:2px 0">加载中…</div>';
   try {
-    const data = await worldProxyTool('world_list_actions', { session_id: worldSessionId });
+    const data = await worldProxyTool('world_list_actions', { session_id: canvasSessionId });
     const actions = (data?.actions || [])
       .map(a => {
         try { return typeof a === 'string' ? JSON.parse(a) : a; }
@@ -10825,7 +10860,7 @@ async function _ndDeleteAction(entityId, actionName, wrap) {
   if (!confirm(`删除 ${entityId}::${actionName}？`)) return;
   try {
     await worldProxyTool('world_remove_action', {
-      session_id: worldSessionId,
+      session_id: canvasSessionId,
       entity_type: entityId,
       action_name: actionName,
     });
@@ -10840,7 +10875,7 @@ async function _ndDeleteAction(entityId, actionName, wrap) {
         await fetch('/api/proxy/tools/world_modify_definition', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ args: { session_id: worldSessionId, class: entityId, definition: newDef } }),
+          body: JSON.stringify({ args: { session_id: canvasSessionId, class: entityId, definition: newDef } }),
         }).then(r => r.json()).then(data => { if (data.canvas) handleCanvasCommand(data.canvas); });
         await refreshPipelineStatus();
       } catch {}
