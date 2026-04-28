@@ -1309,6 +1309,14 @@ body.memory-mode .graph-outline,
 body.memory-mode .graph-scroll,
 body.memory-mode .node-detail { display: none !important; }
 
+/* Plan D: 通用 AIPP canvas 挂载模式 — 隐藏所有 legacy 面板 */
+body.aipp-canvas-mode .memory-panel,
+body.aipp-canvas-mode .graph-outline,
+body.aipp-canvas-mode .graph-scroll,
+body.aipp-canvas-mode .node-detail { display: none !important; }
+#aipp-canvas-mount { display: none; }
+body.aipp-canvas-mode #aipp-canvas-mount { display: block; }
+
 /* Top type bar (horizontal tabs: 全部/事实/事件/…) */
 .mem-type-bar {
   display: flex; align-items: center; gap: 3px; padding: 6px 10px;
@@ -3122,11 +3130,23 @@ function enterCanvasMode(worldName, widgetType) {
   isCanvasMode = true;
   activeWidgetType = widgetType || 'entity-graph';
   document.body.classList.add('canvas-mode');
-  if (activeWidgetType === 'memory-manager') {
+
+  // Plan D: 若 widget manifest 声明了 render.url，走通用 ESM 挂载，
+  // 跳过所有 host-内 legacy 面板分支。
+  const _planDManifest = _widgetManifests[activeWidgetType];
+  const _planDUrl = _planDManifest && _planDManifest.render && _planDManifest.render.url;
+  if (_planDUrl) {
+    document.body.classList.remove('memory-mode');
+    document.body.classList.add('aipp-canvas-mode');
+    const mountEl = _ensureAippCanvasMount();
+    mountAippWidget(mountEl, activeWidgetType, { worldName });
+  } else if (activeWidgetType === 'memory-manager') {
+    document.body.classList.remove('aipp-canvas-mode');
     document.body.classList.add('memory-mode');
     // 初始默认视图 = 全部记忆
     if (!_aippActiveViews['memory-manager']) aippReportView('memory-manager', 'ALL');
   } else {
+    document.body.classList.remove('aipp-canvas-mode');
     document.body.classList.remove('memory-mode');
     // entity-graph 默认视图 = ontology
     if (!_aippActiveViews['entity-graph']) aippReportView('entity-graph', 'ontology');
@@ -3150,6 +3170,8 @@ function exitCanvasMode() {
   activeWidgetType = null;
   document.body.classList.remove('canvas-mode');
   document.body.classList.remove('memory-mode');
+  document.body.classList.remove('aipp-canvas-mode');
+  _unmountAippCanvasMount();
   document.getElementById('mode-badge').textContent = t('mode.chat');
   updateCanvasSessionLabel();
   if (sessionData[currentSessionId]) sessionData[currentSessionId].canvasMode = false;
@@ -7320,12 +7342,21 @@ async function switchSession(targetId) {
     enterCanvasMode(next.name, next.widgetType);
   } else if (needsCanvas && isCanvasMode && next.widgetType !== activeWidgetType) {
     // switching between different canvas widget types
-    if (next.widgetType === 'memory-manager') {
+    activeWidgetType = next.widgetType || 'entity-graph';
+    const _swManifest = _widgetManifests[activeWidgetType];
+    const _swPlanDUrl = _swManifest && _swManifest.render && _swManifest.render.url;
+    if (_swPlanDUrl) {
+      document.body.classList.remove('memory-mode');
+      document.body.classList.add('aipp-canvas-mode');
+      mountAippWidget(_ensureAippCanvasMount(), activeWidgetType, { worldName: next.name });
+    } else if (activeWidgetType === 'memory-manager') {
+      document.body.classList.remove('aipp-canvas-mode');
+      _unmountAippCanvasMount();
       document.body.classList.add('memory-mode');
-      activeWidgetType = 'memory-manager';
     } else {
       document.body.classList.remove('memory-mode');
-      activeWidgetType = next.widgetType || 'entity-graph';
+      document.body.classList.remove('aipp-canvas-mode');
+      _unmountAippCanvasMount();
     }
     if (next.name) {
       const title = (next.widgetType === 'entity-graph' && (next.canvasSessionId || canvasSessionId))
@@ -11392,6 +11423,15 @@ function makeHostApi({ widgetType, mountEl }) {
       }
       return openAppDirect(appId, name, args || {}, existingUiSessionId);
     },
+    /** 直接 POST tool 到 AIPP（经 host /api/proxy 转发），返回 JSON。不触发任何 UI 转换。 */
+    async proxyTool(name, args) {
+      const ctx = { userId: 'default', sessionId: currentSessionId, agentId: 'worldone' };
+      const r = await fetch(`/api/proxy/tools/${name}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ args: args || {}, _context: ctx }),
+      });
+      return r.json();
+    },
     widgetType,
     mountEl,
     sessionId: currentSessionId,
@@ -11405,6 +11445,34 @@ function _resolveWidgetUrl(manifest) {
   if (/^https?:\/\//.test(url)) return url;
   const base = (manifest.app_base_url || '').replace(/\/$/, '');
   return base + (url.startsWith('/') ? url : '/' + url);
+}
+
+/**
+ * 确保 canvas-area 内有 Plan-D 通用挂载容器；返回该 element。
+ * 不影响现有 #graph-scroll / #memory-panel —— 由 body.aipp-canvas-mode 隐藏它们。
+ */
+function _ensureAippCanvasMount() {
+  let el = document.getElementById('aipp-canvas-mount');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'aipp-canvas-mount';
+    el.style.cssText = 'flex:1;min-width:0;height:100%;overflow:auto;background:var(--bg);';
+    const canvas = document.querySelector('.canvas-area');
+    if (canvas) canvas.appendChild(el);
+  }
+  el.style.display = 'block';
+  return el;
+}
+
+function _unmountAippCanvasMount() {
+  const el = document.getElementById('aipp-canvas-mount');
+  if (!el) return;
+  if (el._aippWidgetMod && typeof el._aippWidgetMod.unmount === 'function') {
+    try { el._aippWidgetMod.unmount(); } catch (_) {}
+    el._aippWidgetMod = null;
+  }
+  el.innerHTML = '';
+  el.style.display = 'none';
 }
 
 /** 通用挂载入口。被 renderHtmlWidget 检测到新 shape 时调用，也可被 canvas mode 复用。 */

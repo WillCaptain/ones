@@ -26,6 +26,12 @@ public class MemoryWidgetsController {
         Map<String, Object> widget = new LinkedHashMap<>();
         widget.put("type",        "memory-manager");
         widget.put("description", "Memory 管理面板：查看、编辑、删除、提升 Agent 的所有记忆。");
+        // Plan D: this widget ships as an ES module under /widgets/memory-manager/.
+        // Host dynamically imports it and calls its exported mount(targetEl, hostApi, data).
+        widget.put("render",      Map.of(
+            "kind", "esm",
+            "url",  "/widgets/memory-manager/memory-manager.js"
+        ));
         widget.put("source",      "external");
         widget.put("app_id",      "memory-one");
         widget.put("is_main",     true);
