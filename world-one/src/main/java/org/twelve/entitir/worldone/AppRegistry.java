@@ -326,6 +326,29 @@ public class AppRegistry {
         return new ArrayList<>(byName.values());
     }
 
+    /** 返回指定 app 对 LLM 可见的 tool 清单，保持与 {@link #allSkillsAsTools()} 相同过滤规则。 */
+    public List<Map<String, Object>> skillsAsToolsForApp(String appId) {
+        refreshMissingAppsIfNeeded();
+        AppRegistration app = registry.get(appId);
+        if (app == null) return List.of();
+        Map<String, Map<String, Object>> byName = new LinkedHashMap<>();
+        for (Map<String, Object> skill : app.skills()) {
+            if (Boolean.TRUE.equals(skill.get("background"))) continue;
+            if (Boolean.TRUE.equals(skill.get("auto_pre_turn"))) continue;
+            if (!visibilityContains(skill, "llm")) continue;
+
+            Object nameObj = skill.get("name");
+            if (nameObj == null) continue;
+            String name = nameObj.toString();
+
+            Map<String, Object> existing = byName.get(name);
+            if (existing == null || llmToolRank(skill) > llmToolRank(existing)) {
+                byName.put(name, skill);
+            }
+        }
+        return new ArrayList<>(byName.values());
+    }
+
     private static boolean visibilityContains(Map<String, Object> tool, String token) {
         Object v = tool.get("visibility");
         if (!(v instanceof List<?> list)) {

@@ -94,6 +94,10 @@ public final class GenericAgentLoop {
      * 本轮 {@code chat()} 结束时自动清零，不跨轮。
      */
     private SkillRun currentTurnSkillRun = null;
+    /** AIPP selected by the root router for the current turn. Null means no app is selected yet. */
+    private String currentTurnAippAppId = null;
+    /** Root router explicitly decided no AIPP owns this turn. */
+    private boolean currentTurnNoAippMatch = false;
     /** 命中后 AAP-Post（执行态手册）。 */
     private String activeAapPostPrompt = null;
     private String activeAapPostAppId  = null;
@@ -341,6 +345,8 @@ public final class GenericAgentLoop {
      */
     public void chat(String userMessage, List<String> uiHints, Consumer<ChatEvent> emit) {
         clearTurnScopedAapPostIfNeeded();
+        this.currentTurnAippAppId = null;
+        this.currentTurnNoAippMatch = false;
         this.currentTurnHints = uiHints != null ? uiHints : List.of();
         history.add(Map.of("role", "user", "content", userMessage));
 
@@ -372,6 +378,10 @@ public final class GenericAgentLoop {
             // 可见 skill 为空时直接跳过 Router，保持和改造前完全一致的 flat 行为。
             boolean routerHandledTurn =
                     runSkillRouterIfApplicable(userMessage, emit, toolsCalledThisTurn, turnStart);
+            if (!routerHandledTurn && currentTurnAippAppId != null && currentTurnSkillRun == null) {
+                routerHandledTurn =
+                        runSkillRouterIfApplicable(userMessage, emit, toolsCalledThisTurn, turnStart);
+            }
             int rounds = 0;
             while (!routerHandledTurn && rounds++ < MAX_TOOL_ROUNDS) {
                 String effectiveToolsJson = mergeCanvasTools(tools);
@@ -1000,6 +1010,12 @@ public final class GenericAgentLoop {
     /** 当前 UI 位置对主 LLM 可见的 skill catalog。空 registry 时返回空列表。 */
     private List<SkillDefinition> currentVisibleSkills() {
         if (skillRegistry == null) return List.of();
+        if (isMainSession()) {
+            if (currentTurnAippAppId == null || currentTurnAippAppId.isBlank()) {
+                return skillRegistry.appEntrySkills();
+            }
+            return skillRegistry.visibleSkills(null, null, Set.of(currentTurnAippAppId));
+        }
         return skillRegistry.visibleSkills(activeWidgetType, activeView, Set.of());
     }
 
@@ -1020,6 +1036,7 @@ public final class GenericAgentLoop {
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> universalLlmToolsForRouter(List<Map<String, Object>> allTools) {
         if (!isMainSession()) return List.of();
+        if (currentTurnAippAppId != null && !currentTurnAippAppId.isBlank()) return List.of();
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> t : allTools) {
             Object scopeObj = t.get("scope");
@@ -1209,6 +1226,7 @@ public final class GenericAgentLoop {
         String name = tc.name();
 
         if (LOAD_SKILL_TOOL.equals(name)) {
+            String previousAipp = currentTurnAippAppId;
             String result = handleLoadSkillCall(tc);
             boolean loaded = currentTurnSkillRun != null;
             dbg("ROUTER decision=load_skill args={} loaded={} latency={}ms",
@@ -1216,6 +1234,9 @@ public final class GenericAgentLoop {
             if (loaded) {
                 emit.accept(ChatEvent.annotation(
                         "{\"label\":\"Router: Skill→" + escapeJson(currentTurnSkillRun.skill().name()) + "\"}"));
+            } else if (currentTurnAippAppId != null && !Objects.equals(previousAipp, currentTurnAippAppId)) {
+                emit.accept(ChatEvent.annotation(
+                        "{\"label\":\"Router: AIPP→" + escapeJson(registry.appDisplayName(currentTurnAippAppId)) + "\"}"));
             } else {
                 emit.accept(ChatEvent.annotation(
                         "{\"label\":\"Router: Skill load failed → flat mode (" + escapeJson(shorten(result, 80)) + ")\"}"));
@@ -1225,7 +1246,12 @@ public final class GenericAgentLoop {
 
         if (NO_SKILL_MATCHES_TOOL.equals(name)) {
             dbg("ROUTER decision=no_skill_matches latency={}ms", elapsed);
-            emit.accept(ChatEvent.annotation("{\"label\":\"Router: no skill match → flat mode\"}"));
+            if (isMainSession() && (currentTurnAippAppId == null || currentTurnAippAppId.isBlank())) {
+                currentTurnNoAippMatch = true;
+                emit.accept(ChatEvent.annotation("{\"label\":\"Router: no AIPP match → host mode\"}"));
+            } else {
+                emit.accept(ChatEvent.annotation("{\"label\":\"Router: no skill match → app tools\"}"));
+            }
             return false;
         }
 
@@ -1297,6 +1323,13 @@ public final class GenericAgentLoop {
             return "{\"error\":\"skill not available at current location: "
                     + escapeJson(skillName) + "\"}";
         }
+        if (org.twelve.entitir.worldone.skills.SkillRegistry.AIPP_ENTRY_PLAYBOOK.equals(matched.playbookUrl())) {
+            this.currentTurnAippAppId = matched.appId();
+            this.currentTurnNoAippMatch = false;
+            log.info("[SkillRouter] selected AIPP app={} via entry skill={}",
+                    matched.appId(), matched.name());
+            return "{\"status\":\"selected_aipp\",\"app_id\":\"" + escapeJson(matched.appId()) + "\"}";
+        }
         String playbook = skillRegistry.loadPlaybook(matched);
         if (playbook == null || playbook.isBlank()) {
             return "{\"error\":\"playbook empty or not found for skill " + escapeJson(skillName) + "\"}";
@@ -1308,6 +1341,14 @@ public final class GenericAgentLoop {
     }
 
     private String mergeCanvasTools(List<Map<String, Object>> baseSkills) {
+        if (isMainSession() && currentTurnNoAippMatch) {
+            return buildToolsJson(registry.skillsAsToolsForApp("worldone-system"));
+        }
+        if (isMainSession() && currentTurnAippAppId != null && !currentTurnAippAppId.isBlank()
+                && currentTurnSkillRun == null) {
+            return buildToolsJson(registry.skillsAsToolsForApp(currentTurnAippAppId));
+        }
+
         // Skill Playbook 命中时，优先级最高：tools 严格收窄到 whitelist，
         // 跳过 canvas_skill 追加与 widget scope 过滤（playbook 自身已经约束）。
         if (currentTurnSkillRun != null) {

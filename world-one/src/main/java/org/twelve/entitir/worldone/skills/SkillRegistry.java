@@ -48,6 +48,7 @@ public class SkillRegistry {
 
     /** (appId, skillId) → 已缓存 playbook 文本。 */
     private final Map<String, String> playbookCache = new ConcurrentHashMap<>();
+    public static final String AIPP_ENTRY_PLAYBOOK = "__aipp_entry__";
 
     // ── 索引加载 ──────────────────────────────────────────────────────────────
 
@@ -131,6 +132,51 @@ public class SkillRegistry {
             if (Objects.equals(s.level(), level)) out.add(s);
         }
         return out;
+    }
+
+    /**
+     * Host root router 只看这些 AIPP entry skills：一个 app 一个入口。
+     * 真正命中 app 后，下一层 Router 才展开该 app 自己的 skill catalog。
+     */
+    public List<SkillDefinition> appEntrySkills() {
+        List<SkillDefinition> out = new ArrayList<>();
+        for (AppRegistration app : apps.apps()) {
+            if ("worldone-system".equals(app.appId())) continue;
+            if ((app.widgets() == null || app.widgets().isEmpty())
+                    && (app.skills() == null || app.skills().isEmpty())) continue;
+            out.add(new SkillDefinition(
+                    "aipp_" + app.appId().replaceAll("[^A-Za-z0-9_]", "_"),
+                    app.appId(),
+                    "aipp_entry",
+                    null,
+                    null,
+                    appEntryDescription(app),
+                    List.of(),
+                    AIPP_ENTRY_PLAYBOOK));
+        }
+        return out;
+    }
+
+    private static String appEntryDescription(AppRegistration app) {
+        List<String> parts = new ArrayList<>();
+        parts.add("Route to AIPP app `" + app.appId() + "` (" + app.name() + ").");
+        if (app.systemPromptContribution() != null && !app.systemPromptContribution().isBlank()) {
+            parts.add(app.systemPromptContribution().strip());
+        }
+        if (app.promptContributions() != null) {
+            app.promptContributions().stream()
+                    .map(SkillRegistry::contributionContent)
+                    .filter(s -> s != null && !s.isBlank())
+                    .map(String::strip)
+                    .forEach(parts::add);
+        }
+        String desc = String.join(" ", parts).replaceAll("\\s+", " ").trim();
+        return desc.length() <= 1000 ? desc : desc.substring(0, 997) + "...";
+    }
+
+    private static String contributionContent(Map<String, Object> contribution) {
+        Object c = contribution == null ? null : contribution.get("content");
+        return c == null ? "" : c.toString();
     }
 
     /** 查询某个 app 下的 skill。 */
