@@ -3123,7 +3123,7 @@ function updateCanvasSessionLabel() {
   el.title = type ? `${displayName}(${type})` : displayName;
 }
 
-function enterCanvasMode(worldName, widgetType) {
+function enterCanvasMode(worldName, widgetType, initialData) {
   console.log('[enterCanvasMode]', worldName, widgetType);
   panelOpenBeforeCanvas = panelOpen;
   setPanelOpen(false);
@@ -3139,7 +3139,7 @@ function enterCanvasMode(worldName, widgetType) {
     document.body.classList.remove('memory-mode');
     document.body.classList.add('aipp-canvas-mode');
     const mountEl = _ensureAippCanvasMount();
-    mountAippWidget(mountEl, activeWidgetType, { worldName });
+    mountAippWidget(mountEl, activeWidgetType, Object.assign({ worldName }, initialData || {}));
   } else if (activeWidgetType === 'memory-manager') {
     document.body.classList.remove('aipp-canvas-mode');
     document.body.classList.add('memory-mode');
@@ -7853,23 +7853,37 @@ function handleMemoryManagerCommand(action, props, cmd) {
     sessionData[currentSessionId].memoryState = memories;
   }
 
+  // Plan D: if memory-manager declares render.url, the AIPP widget owns the
+  // entire UI — host just routes initial data through enterCanvasMode and skips
+  // all legacy panel manipulation.
+  const _mmManifest = _widgetManifests['memory-manager'];
+  const _mmPlanD = _mmManifest && _mmManifest.render && _mmManifest.render.url;
+
   if (!isCanvasMode) {
-    enterCanvasMode(sessionName, 'memory-manager');
+    enterCanvasMode(sessionName, 'memory-manager', _mmPlanD ? { memories } : undefined);
   } else if (activeWidgetType !== 'memory-manager') {
-    // switching from entity-graph to memory-manager
-    document.body.classList.add('memory-mode');
-    activeWidgetType = 'memory-manager';
+    if (_mmPlanD) {
+      activeWidgetType = 'memory-manager';
+      document.body.classList.remove('memory-mode');
+      document.body.classList.add('aipp-canvas-mode');
+      mountAippWidget(_ensureAippCanvasMount(), 'memory-manager', { memories, worldName: sessionName });
+    } else {
+      document.body.classList.add('memory-mode');
+      activeWidgetType = 'memory-manager';
+    }
     if (sessionName) document.getElementById('side-title').textContent = sessionName;
+  } else if (_mmPlanD && (action === 'open' || action === 'replace')) {
+    // Already mounted; re-mount with new data.
+    mountAippWidget(_ensureAippCanvasMount(), 'memory-manager', { memories, worldName: sessionName });
   }
 
-  if (action === 'open' || action === 'replace') {
-    // Populate scope nav and default to GLOBAL
+  if (!_mmPlanD && (action === 'open' || action === 'replace')) {
+    // Legacy fallback path — kept for widgets without render.url declared.
     populateMemScopeNav();
     _memCurrentScope    = 'GLOBAL';
     _memCurrentScopeCtx = null;
     document.querySelectorAll('.mem-scope-item, .mem-scope-sub').forEach(el =>
       el.classList.toggle('active', el.dataset.scope === 'GLOBAL' && !el.dataset.ctx));
-    // Show GLOBAL memories from the initial data (avoids extra proxy call on open)
     renderMemoryPanel(memories.filter(m => m.scope === 'GLOBAL'));
   }
 }
@@ -11488,8 +11502,12 @@ async function mountAippWidget(targetEl, widgetType, data) {
   if (targetEl._aippWidgetMod && typeof targetEl._aippWidgetMod.unmount === 'function') {
     try { targetEl._aippWidgetMod.unmount(); } catch (_) {}
   }
+  // Cache-bust the dynamic import so widget code updates take effect without
+  // requiring users to clear browser module cache. Query string is harmless
+  // for static asset servers.
+  const importUrl = url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now();
   try {
-    const mod = await import(/* @vite-ignore */ url);
+    const mod = await import(/* @vite-ignore */ importUrl);
     const api = makeHostApi({ widgetType, mountEl: targetEl });
     mod.mount(targetEl, api, data);
     targetEl._aippWidgetMod = mod;
