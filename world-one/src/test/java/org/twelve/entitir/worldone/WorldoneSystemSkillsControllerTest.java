@@ -46,12 +46,15 @@ class WorldoneSystemSkillsControllerTest {
         Map<String, Object> widget = (Map<String, Object>) body.get("html_widget");
         assertThat(widget)
             .containsEntry("title", "应用列表")
-            .containsKey("height")
-            .containsKey("html");
-        assertThat((String) widget.get("html"))
-            .contains("世界设计")
-            .contains("记忆管理")
-            .contains("postMessage({ type: 'openApp'");
+            .containsEntry("widget_type", "sys.app-list")
+            .containsKey("data");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) widget.get("data");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> apps = (List<Map<String, Object>>) data.get("apps");
+        assertThat(apps)
+            .extracting(a -> a.get("app_name"))
+            .contains("世界设计", "记忆管理");
         assertThat(body).doesNotContainKey("text");
     }
 }

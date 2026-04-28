@@ -35,7 +35,7 @@ public class WorldoneBuiltins {
             "http://localhost:" + port,
             systemPrompt(),
             List.of(appListViewSkill()),
-            List.of()
+            List.of(appListWidget())
         );
     }
 
@@ -89,6 +89,22 @@ public class WorldoneBuiltins {
             "visible_when", "always"
         ));
         return t;
+    }
+
+    private static Map<String, Object> appListWidget() {
+        java.util.LinkedHashMap<String, Object> w = new java.util.LinkedHashMap<>();
+        w.put("type", "sys.app-list");
+        w.put("app_id", "worldone-system");
+        w.put("is_main", false);
+        w.put("is_canvas_mode", false);
+        w.put("source", "system");
+        w.put("title", "应用列表");
+        w.put("description", "Host system widget for listing registered AIPP applications.");
+        w.put("render", Map.of(
+            "kind", "esm",
+            "url", "/widgets/system/app-list.js"
+        ));
+        return w;
     }
 
 }

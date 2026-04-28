@@ -285,7 +285,7 @@ public final class GenericAgentLoop {
      *
      * <p>当 {@code extraArgs} 非空时，直接调用指定 skill（{@code tool_name} 键）
      * 或 main widget 的 {@code renders_output_of_skill}，并将 {@code extraArgs}
-     * 作为 args 传入。这使得 "点击世界卡片进入世界" 与 LLM 调用 world_design
+     * 作为 args 传入。这使得从 app 列表打开和 LLM 调用主入口
      * 走完全相同的代码路径。
      *
      * @param extraArgs 可选额外参数，如 {@code {name: "My World"}} 或
@@ -576,9 +576,10 @@ public final class GenericAgentLoop {
             String widgetCtx = registry.widgetContextPrompt(activeWidgetType);
             String wsContext = "";
             if (workspaceId != null && !workspaceId.isBlank()) {
-                wsContext = "**当前世界**：" + (workspaceTitle != null ? workspaceTitle : workspaceId)
+                wsContext = "**当前 Canvas 工作区**：" + (workspaceTitle != null ? workspaceTitle : workspaceId)
                           + "（session_id: " + workspaceId + "）\n"
-                          + "session_id 已自动绑定，所有 world_* 工具调用无需提供 session_id。\n";
+                          + "当前 widget 作用域内的工具调用已自动绑定该 session_id；"
+                          + "除非工具 schema 明确要求，否则无需重复提供 session_id。\n";
             }
             if (widgetCtx != null && !widgetCtx.isBlank()) {
                 sysContent = sysContent
@@ -704,8 +705,7 @@ public final class GenericAgentLoop {
 
     /**
      * Host 兜底刷新：若本轮调用了 widget 的 mutating_tools 但 LLM 未主动调用 refresh_skill，
-     * 则 Host 自动补调一次 refresh_skill（entity-graph 上为 {@code world_design}），
-     * 且必须在 args 中传入 {@code session_id = workspaceId}，否则会误加载「Unnamed World」导致图画空。
+     * 则 Host 自动补调一次 refresh_skill，并在 args 中传入 {@code session_id = workspaceId}。
      *
      * <p>这是 AIPP Widget View 协议的通用机制：
      * <ul>
@@ -732,9 +732,8 @@ public final class GenericAgentLoop {
             AppRegistration app = registry.findAppForTool(refreshSkill);
             String url = app.toolUrl(refreshSkill);
             Map<String, Object> reqBody = new LinkedHashMap<>();
-            // world_design 等刷新入口必须带上当前 canvas 世界的 session_id。
-            // 若 args 为空，world-entitir 的 handleWorldDesign 会退回到「Unnamed World」，
-            // 返回空图或错误世界，导致 ontology 图被 replace 成空白。
+            // Refresh tools run in the active canvas workspace unless the tool
+            // schema asks for a different scope.
             Map<String, Object> refreshArgs = new LinkedHashMap<>();
             if (workspaceId != null && !workspaceId.isBlank()) {
                 refreshArgs.put("session_id", workspaceId);
@@ -810,7 +809,7 @@ public final class GenericAgentLoop {
 
             // Host 解耦协议：output_widget_rules.force_canvas_when 列出的字段全部存在且非空时，
             // 强制进入 canvas 模式（即便响应同时带 html_widget）；default_widget 提供兜底类型。
-            // 替代旧 world_design+graph+session_id 的硬编码特判。
+            // 替代旧的 app-specific 字段硬编码特判。
             Map<String, Object> rules = registry.getOutputWidgetRules(skillName);
             boolean forceCanvas = AppRegistry.matchesForceCanvas(root, rules);
             if (widgetType == null && forceCanvas) {
@@ -1654,7 +1653,7 @@ public final class GenericAgentLoop {
     /** tool 结果含 html_widget 时返回 true：widget 已渲染，不需要 LLM 续写文字。 */
     /**
      * 是否为「仅 Chat 内嵌卡片、不走 Canvas」的工具结果。
-     * world_design 在误带 html_widget 但同时返回 graph+session_id 时，应与 extractEvents 一致地视为画布回合。
+     * 当 force-canvas 规则命中时，应与 extractEvents 一致地视为画布回合。
      */
     /**
      * Host 解耦版：rules（来自 skill 的 {@code output_widget_rules}）若命中 {@code force_canvas_when}

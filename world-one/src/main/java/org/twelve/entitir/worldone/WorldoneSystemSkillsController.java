@@ -47,9 +47,12 @@ public class WorldoneSystemSkillsController {
         return ResponseEntity.ok(Map.of(
             "ok", true,
             "html_widget", Map.of(
-                "title",  "应用列表",
-                "height", computeHeight(apps.size()),
-                "html",   buildHtmlPage(apps, idSet, query)
+                "widget_type", "sys.app-list",
+                "title",       "应用列表",
+                "data",        Map.of(
+                    "apps",  apps,
+                    "query", query == null ? "" : query
+                )
             )
         ));
     }

@@ -529,9 +529,6 @@ body.aipp-canvas-mode #aipp-canvas-mount { display: flex; flex: 1; min-width: 0;
 
 /* ── HTML Widget (inline chat card, is_canvas_mode=false) ────────────── */
 .html-widget-msg { padding:4px 0; }
-.html-widget-frame { width:100%; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); overflow:hidden; min-height:60px; display:flex; align-items:center; justify-content:center; position:relative; }
-.html-widget-frame iframe { width:100%; border:none; display:block; }
-.html-widget-loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:var(--surface); }
 .hw-spinner { width:20px; height:20px; border:2px solid var(--border2); border-top-color:var(--accent); border-radius:50%; animation:spin 0.7s linear infinite; }
 .btn-primary {
   flex: 1; background: var(--accent); border: none; border-radius: var(--radius);
@@ -1281,7 +1278,7 @@ const sessionData = {
   'main': {
     id: 'main', type: 'conversation', name: 'World One',
     status: null, messages: [],
-    canvasMode: false, graphState: { nodes: [], edges: [] },
+    canvasMode: false,
     showWelcome: true,
   }
 };
@@ -1292,7 +1289,6 @@ let panelOpen             = true;
 let panelOpenBeforeCanvas = true;
 let activeCategory        = 'all';
 let _completedPageInit    = false; // placeholder, actual state is _completedPage above
-let graphState            = { nodes: [], edges: [] }; // host-side mirror; widget owns UI copy
 let abortController       = null;
 let isStreaming            = false;
 
@@ -1310,7 +1306,7 @@ async function loadSessions() {
       if (!sessionData[s.id]) {
         sessionData[s.id] = {
           id: s.id, type: s.type, name: s.name, status: s.status,
-          messages: [], canvasMode, graphState: { nodes: [], edges: [] },
+          messages: [], canvasMode,
           widgetType: (isConversation || isApp) ? null : (s.widgetType || null),
           canvasSessionId: (isConversation || isApp) ? null : (s.canvasSessionId || null),
           showWelcome: false,
@@ -1571,7 +1567,6 @@ async function switchSession(targetId) {
   const cur = sessionData[currentSessionId];
   if (cur) {
     cur.canvasMode = isCanvasMode;
-    cur.graphState = { ...graphState };
     const activeMsgEl = isCanvasMode
       ? document.getElementById('panel-messages')
       : document.getElementById('full-messages');
@@ -1590,7 +1585,7 @@ async function switchSession(targetId) {
         const { messages } = await resp.json();
         next.messages = (messages || []).map(m => {
           if (m.role === 'widget') {
-            // widget 消息：保存 widgetJson，restoreMessages 会重建 iframe
+            // widget 消息：保存 widgetJson，restoreMessages 会重建 ESM widget
             return { role: 'assistant', widgetJson: m.widgetJson };
           }
           return { role: m.role, html: md(m.content) };
@@ -1602,7 +1597,7 @@ async function switchSession(targetId) {
   // 2. 判断 canvas 模式切换
   const needsCanvas = next.canvasMode || !!next.widgetType;
   if (needsCanvas && !isCanvasMode) {
-    enterCanvasMode(next.name, next.widgetType, { graphState: next.graphState || graphState, canvasSessionId: next.canvasSessionId || canvasSessionId });
+    enterCanvasMode(next.name, next.widgetType, { canvasSessionId: next.canvasSessionId || canvasSessionId });
   } else if (needsCanvas && isCanvasMode && next.widgetType !== activeWidgetType) {
     // switching between different canvas widget types
     activeWidgetType = next.widgetType || activeWidgetType;
@@ -1689,10 +1684,10 @@ function restoreMessages(sess) {
     let el;
     if (m.widgetJson) {
       if (m.processed) {
-        // 已处理：显示静态卡片而非活跃 iframe
+        // 已处理：显示静态卡片而非活跃 widget
         el = _buildProcessedCard(m.widgetJson);
       } else {
-        // Widget 消息：渲染为可交互 iframe（同 sendMessage 路径）
+        // Widget 消息：渲染为可交互 ESM widget（同 sendMessage 路径）
         el = document.createElement('div');
         el.className = 'msg assistant html-widget-msg';
         renderHtmlWidget(m.widgetJson, el);
@@ -1792,7 +1787,7 @@ async function sendMessage(area) {
             handleCanvasCommand(JSON.parse(ev.content));
 
           } else if (ev.type === 'html_widget') {
-            // is_canvas_mode=false widget：渲染为聊天流内嵌 iframe 卡片
+            // is_canvas_mode=false widget：渲染为聊天流内嵌 ESM 卡片
             // 注意：若 text_token 先到，startStreamingResponse 已把 liveId 从 DOM 移除
             // 并用 streamState.msgEl 替代——此时需接管 msgEl 来渲染 widget
             let containerEl = document.getElementById(liveId);
@@ -1923,7 +1918,7 @@ function handleSessionEvent(data, triggerMsg) {
     sessionData[ui_session_id] = {
       id: ui_session_id, type, name, status: 'active',
       messages: [{ role: 'system', html: welcomeHtml }],
-      canvasMode: false, graphState: { nodes: [], edges: [] },
+      canvasMode: false,
       showWelcome: false,
     };
     switchSession(ui_session_id);
@@ -1963,97 +1958,28 @@ function handleCanvasCommand(cmd) {
   const targetManifest = _widgetManifests[targetWidgetType] || {};
   const targetIsPlanD = !!(targetManifest.render && targetManifest.render.url);
 
-  // store design session_id for inline editing
   if (cmd.session_id && cmd.session_id !== canvasSessionId) {
     canvasSessionId = cmd.session_id;
-    OutlineLang.invalidateTypeMap();
-    OutlineLang.loadTypeMap(canvasSessionId ? appProxyUrlForWidget(targetWidgetType, `/api/schema-types?session_id=${encodeURIComponent(canvasSessionId)}`) : null);
-    window.loadGraphLayout?.(canvasSessionId);
-    window.loadDecisionGraphLayout?.(canvasSessionId);
   }
 
-  // Widget-owned tab/list patch payloads are delegated back to the mounted widget
-  // when it has registered a handler.
-  if (action === 'patch' && props && props.tab) {
-    window.handleDesignerTabPatch?.(props);
-    return;
-  }
-
-  const hasGraphPayload = !!(props && (Array.isArray(props.nodes) || Array.isArray(props.edges)));
-  if (targetIsPlanD && !hasGraphPayload) {
+  if (targetIsPlanD) {
     const widgetData = Object.assign({}, props || {}, cmd.data || {}, {
       canvasSessionId: cmd.session_id || canvasSessionId || undefined,
       sessionName: cmd.session_name || props?.session_name,
+      canvasCommand: cmd,
     });
     if (sessionData[currentSessionId]) {
       sessionData[currentSessionId].canvasMode = action !== 'close';
       sessionData[currentSessionId].widgetType = targetWidgetType;
       if (cmd.session_id) sessionData[currentSessionId].canvasSessionId = cmd.session_id;
-      if (props && props.memories) sessionData[currentSessionId].memoryState = props.memories;
     }
     if (action === 'close') exitToMainSession();
     else if (!isCanvasMode || activeWidgetType !== targetWidgetType) {
       enterCanvasMode(cmd.session_name || props?.session_name || targetWidgetType, targetWidgetType, widgetData);
     } else {
-      mountAippWidget(_ensureAippCanvasMount(), targetWidgetType, widgetData);
+      window.aippHandleCanvasCommand?.(cmd);
     }
     return;
-  }
-
-  if (action === 'open') {
-    graphState = { nodes: props.nodes || [], edges: props.edges || [] };
-    window.entityGraphSetGraphState?.(graphState);
-    if (sessionData[currentSessionId]) {
-      sessionData[currentSessionId].canvasMode     = true;
-      sessionData[currentSessionId].widgetType     = targetWidgetType;
-      sessionData[currentSessionId].graphState     = { ...graphState };
-      if (cmd.session_id) sessionData[currentSessionId].canvasSessionId = cmd.session_id;
-    }
-    enterCanvasMode(cmd.session_name || props.session_name || targetWidgetType, targetWidgetType, { graphState });
-    // Defer renderGraph so the container has real layout dimensions
-    requestAnimationFrame(() => window.renderGraph?.());
-    window.loadDesignerTabData?.(); window.refreshPipelineStatus?.();
-  } else if (action === 'patch') {
-    const nm = {}; graphState.nodes.forEach(n => nm[n.id] = n);
-    (props.nodes||[]).forEach(n => nm[n.id] = n);
-    graphState.nodes = Object.values(nm);
-    // For patched nodes, replace only their outgoing edges. Incoming edges are
-    // owned by the source node's definition and are not included in this delta.
-    const patchedIds = new Set((props.nodes||[]).map(n => n.id));
-    if (patchedIds.size > 0) {
-      graphState.edges = graphState.edges.filter(e => {
-        const s = e.source||e.from;
-        return !patchedIds.has(s);
-      });
-      graphState.edges = [...graphState.edges, ...(props.edges||[])];
-    } else {
-      const ek = e => (e.source||e.from) + '→' + (e.target||e.to);
-      const em = {}; graphState.edges.forEach(e => em[ek(e)] = e);
-      (props.edges||[]).forEach(e => em[ek(e)] = e);
-      graphState.edges = Object.values(em);
-    }
-    if (sessionData[currentSessionId]) sessionData[currentSessionId].graphState = { ...graphState };
-    window.entityGraphSetGraphState?.(graphState);
-    window.renderGraphKeepLayout?.();
-    try {
-      const _sel = window.selectedNodeId;
-      if (_sel) window.refreshNodeDetailFromGraph?.(_sel);
-    } catch {}
-    if (window._currentOntologyView === 'schema') window.loadSchemaEditor?.();
-  } else if (action === 'replace') {
-    graphState = { nodes: props.nodes||[], edges: props.edges||[] };
-    window.entityGraphSetGraphState?.(graphState);
-    const sess = sessionData[currentSessionId];
-    if (sess) sess.graphState = { ...graphState };
-    if (!isCanvasMode) {
-      if (sess) sess.canvasMode = true;
-      enterCanvasMode(cmd.session_name || props?.session_name || sessionData[currentSessionId]?.name || targetWidgetType, targetWidgetType, { graphState });
-    }
-    requestAnimationFrame(() => window.renderGraph?.());
-    if (window._currentOntologyView === 'schema') window.loadSchemaEditor?.();
-    window.loadDesignerTabData?.(); window.refreshPipelineStatus?.();
-  } else if (action === 'close') {
-    exitToMainSession();
   }
 }
 
@@ -2895,7 +2821,7 @@ async function startNewChat() {
   sessionData[session_id] = {
     id: session_id, type: 'conversation', name: t('session.type.conversation'),
     status: 'active', messages: [],
-    canvasMode: false, graphState: { nodes: [], edges: [] },
+    canvasMode: false,
     showWelcome: true,
   };
   if (isCanvasMode) exitCanvasMode();
@@ -2927,8 +2853,7 @@ function esc(s) {
 
 window.addEventListener('resize', () => {
   if (!isCanvasMode) return;
-  if (window.activeDesignerTab === 'decisions') window.renderDecisionGraph?.();
-  else window.renderGraph?.();
+  window.aippHandleResize?.();
 });
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
@@ -3247,8 +3172,9 @@ async function openAppDirect(appId, toolName, toolArgs, existingSessionId) {
   // App panel 是全局导航：若当前在 canvas mode，先退回主 session
   if (isCanvasMode) exitCanvasMode();
 
-  // 若指定了已有 world session，先切换过去，避免 spinner 污染当前 session
-  if (existingSessionId && sessionData[existingSessionId] && currentSessionId !== existingSessionId) {
+  // App-owned tool openings will emit session/canvas events; pre-switching here
+  // would mount stale canvas once before the real open response arrives.
+  if (!toolName && existingSessionId && sessionData[existingSessionId] && currentSessionId !== existingSessionId) {
     await switchSession(existingSessionId);
   } else {
     // 若 app 已有专属 session（app-{appId}），先切换过去，避免 spinner 污染当前 session
@@ -3311,7 +3237,7 @@ async function openAppDirect(appId, toolName, toolArgs, existingSessionId) {
   }
 }
 
-// 处理 html_widget iframe 发来的 postMessage（卡片交互 → 进入世界 / 新建世界）
+// 处理 Host 系统面板 iframe 发来的 postMessage（AIPP widgets 使用 hostApi）
 window.addEventListener('message', function(event) {
   if (!event.data) return;
 
@@ -3341,23 +3267,9 @@ window.addEventListener('message', function(event) {
     return;
   }
 
-  // ── canvas / html_widget 内部动作（type: 'action'）────────────────────
-  if (event.data.type !== 'action') return;
-  const { tool, args } = event.data;
-  if (!tool) return;
-  const appId = _currentAppId || 'world';
-
-  // 若点击的是已有 world（args 含 session_id = canvas_session_id），
-  // 找到对应 UiSession，先切换过去再打开，避免 spinner 污染当前 session。
-  let existingUiSessionId = null;
-  if (args && args.session_id) {
-    const found = Object.values(sessionData).find(s => s.canvasSessionId === args.session_id);
-    if (found) existingUiSessionId = found.id;
-  }
-  openAppDirect(appId, tool, args || {}, existingUiSessionId);
 });
 
-/** 当前活跃 app（点击 Apps 面板时设置，用于 postMessage 路由） */
+/** 当前活跃 app（点击 Apps 面板时设置，用于 hostApi fallback） */
 let _currentAppId = null;
 
 // ── html_widget 渲染（is_canvas_mode=false）────────────────────────────────
@@ -3380,7 +3292,7 @@ function makeHostApi({ widgetType, mountEl }) {
   const manifest = _widgetManifests[widgetType] || {};
   const appId = manifest.app_id || _currentAppId || '';
   return {
-    /** 直接调用某 tool（绕开 LLM），等价于现状的 postMessage {type:'action'}。 */
+    /** 直接调用某 tool（绕开 LLM），用于 widget 内用户动作。 */
     callTool(name, args) {
       const targetAppId = appId || _currentAppId;
       // 复用现有 session-切换 + openAppDirect 逻辑
@@ -3390,6 +3302,9 @@ function makeHostApi({ widgetType, mountEl }) {
         if (found) existingUiSessionId = found.id;
       }
       return openAppDirect(targetAppId, name, args || {}, existingUiSessionId);
+    },
+    openApp(targetAppId) {
+      return openAppDirect(targetAppId);
     },
     /** 直接 POST tool 到 AIPP（经 host /api/proxy 转发），返回 JSON。不触发任何 UI 转换。 */
     async proxyTool(name, args) {
@@ -3450,6 +3365,27 @@ function _unmountAippCanvasMount() {
 }
 
 /** 通用挂载入口。被 renderHtmlWidget 检测到新 shape 时调用，也可被 canvas mode 复用。 */
+const _aippWidgetModuleCache = new Map();
+
+function preloadAippWidget(widgetType) {
+  const manifest = _widgetManifests[widgetType];
+  const url = _resolveWidgetUrl(manifest);
+  if (!url || _aippWidgetModuleCache.has(url)) return;
+  _aippWidgetModuleCache.set(url, import(/* @vite-ignore */ url).catch(e => {
+    _aippWidgetModuleCache.delete(url);
+    console.warn('[preloadAippWidget] failed', widgetType, e);
+    return null;
+  }));
+}
+
+function preloadCanvasWidgetsSoon() {
+  const run = () => Object.values(_widgetManifests)
+    .filter(w => w && w.is_canvas_mode && w.render && w.render.url)
+    .forEach(w => preloadAippWidget(w.type));
+  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 1500 });
+  else setTimeout(run, 300);
+}
+
 async function mountAippWidget(targetEl, widgetType, data) {
   const manifest = _widgetManifests[widgetType];
   const url = _resolveWidgetUrl(manifest);
@@ -3462,12 +3398,14 @@ async function mountAippWidget(targetEl, widgetType, data) {
   if (targetEl._aippWidgetMod && typeof targetEl._aippWidgetMod.unmount === 'function') {
     try { targetEl._aippWidgetMod.unmount(); } catch (_) {}
   }
-  // Cache-bust the dynamic import so widget code updates take effect without
-  // requiring users to clear browser module cache. Query string is harmless
-  // for static asset servers.
-  const importUrl = url + (url.includes('?') ? '&' : '?') + 'v=' + Date.now();
   try {
-    const mod = await import(/* @vite-ignore */ importUrl);
+    let modulePromise = _aippWidgetModuleCache.get(url);
+    if (!modulePromise) {
+      modulePromise = import(/* @vite-ignore */ url);
+      _aippWidgetModuleCache.set(url, modulePromise);
+    }
+    const mod = await modulePromise;
+    if (!mod) throw new Error('widget module preload failed');
     const api = makeHostApi({ widgetType, mountEl: targetEl });
     mod.mount(targetEl, api, data);
     targetEl._aippWidgetMod = mod;
@@ -3482,53 +3420,19 @@ function renderHtmlWidget(json, containerMsgEl) {
   let data;
   try { data = typeof json === 'string' ? JSON.parse(json) : json; } catch(e) { return; }
 
-  // ── Plan D 新形：{widget_type, data, title} → 走 ESM 挂载路径 ──────────
   if (data && data.widget_type) {
     return _renderAippWidgetMessage(data, containerMsgEl);
   }
 
-  const html   = data.html   || '';
-  const height = data.height || '320px';
-  if (!html) return;
-
-  // replace-last: 若 containerMsgEl 就是最后一个 html_widget 所在消息，直接更新
-  let frameContainer;
-  if (_lastHtmlWidgetEl && _lastHtmlWidgetEl === containerMsgEl) {
-    frameContainer = containerMsgEl.querySelector('.html-widget-frame');
-    if (frameContainer) {
-      const iframe = frameContainer.querySelector('iframe');
-      if (iframe) { setIframeSrcdoc(iframe, html, height); return; }
-    }
-  }
-
-  // 追加：在 containerMsgEl 内新建 html-widget-frame
-  frameContainer = document.createElement('div');
-  frameContainer.className = 'html-widget-frame';
-  frameContainer.style.height = height;
-
-  // Spinner 占位
-  const loadingEl = document.createElement('div');
-  loadingEl.className = 'html-widget-loading';
-  loadingEl.innerHTML = '<div class="hw-spinner"></div>';
-  frameContainer.appendChild(loadingEl);
-
-  const iframe = document.createElement('iframe');
-  iframe.style.height = height;
-  iframe.setAttribute('sandbox', 'allow-scripts allow-forms');
-
-  iframe.onload = () => { loadingEl.remove(); };
-  frameContainer.appendChild(iframe);
+  const errorEl = document.createElement('div');
+  errorEl.className = 'widget-processed-card';
+  errorEl.style.color = 'var(--danger)';
+  errorEl.textContent = 'Invalid html_widget: missing widget_type for app-owned ESM renderer.';
   containerMsgEl.classList.add('html-widget-msg');
-  containerMsgEl.appendChild(frameContainer);
-
-  // 注入 widget 操作按钮（仅删除）
+  containerMsgEl.appendChild(errorEl);
   _injectWidgetActions(containerMsgEl);
-
-  // 保存 widgetJson 到 data 属性，供 saveDomMessages 读取（session 切换时保持状态）
   containerMsgEl.dataset.widgetJson = typeof json === 'string' ? json : JSON.stringify(json);
-  delete containerMsgEl.dataset.processed; // 确保未处理状态
-
-  setIframeSrcdoc(iframe, html, height);
+  delete containerMsgEl.dataset.processed;
   _lastHtmlWidgetEl = containerMsgEl;
   _lastHtmlWidgetSessionId = currentSessionId;
   scrollToBottom();
@@ -3536,7 +3440,7 @@ function renderHtmlWidget(json, containerMsgEl) {
 
 /**
  * Plan D 聊天卡片挂载：在消息元素里建一个 mount 目标 div，调通用 mountAippWidget。
- * 与 srcdoc 路径不同：没有 iframe、不需要 height、widget JS 直接渲染到 host DOM。
+ * widget JS 直接渲染到 host DOM；Host 不理解 widget 内部 UI。
  */
 function _renderAippWidgetMessage(data, containerMsgEl) {
   const widgetType = data.widget_type;
@@ -3544,8 +3448,9 @@ function _renderAippWidgetMessage(data, containerMsgEl) {
 
   // replace-last：同一条消息上重复挂载就更新内容
   let mountEl;
+  const bubble = _ensureAssistantWidgetBubble(containerMsgEl);
   if (_lastHtmlWidgetEl && _lastHtmlWidgetEl === containerMsgEl) {
-    mountEl = containerMsgEl.querySelector('.aipp-widget-mount');
+    mountEl = bubble.querySelector('.aipp-widget-mount');
     if (mountEl) {
       mountAippWidget(mountEl, widgetType, widgetData);
       containerMsgEl.dataset.widgetJson = typeof data === 'string' ? data : JSON.stringify(data);
@@ -3557,7 +3462,8 @@ function _renderAippWidgetMessage(data, containerMsgEl) {
   mountEl = document.createElement('div');
   mountEl.className = 'aipp-widget-mount';
   containerMsgEl.classList.add('html-widget-msg');
-  containerMsgEl.appendChild(mountEl);
+  bubble.innerHTML = '';
+  bubble.appendChild(mountEl);
 
   _injectWidgetActions(containerMsgEl);
   containerMsgEl.dataset.widgetJson = typeof data === 'string' ? data : JSON.stringify(data);
@@ -3569,27 +3475,46 @@ function _renderAippWidgetMessage(data, containerMsgEl) {
   scrollToBottom();
 }
 
+function _ensureAssistantWidgetBubble(containerMsgEl) {
+  containerMsgEl.classList.remove('live-progress');
+  containerMsgEl.classList.add('msg', 'assistant', 'html-widget-msg');
+
+  let avatar = containerMsgEl.querySelector(':scope > .msg-avatar');
+  let body = containerMsgEl.querySelector(':scope > .msg-body');
+  let bubble = body?.querySelector(':scope > .msg-bubble');
+  if (avatar && body && bubble) return bubble;
+
+  avatar = avatar || document.createElement('div');
+  avatar.className = 'msg-avatar';
+  avatar.textContent = avatar.textContent || 'W';
+
+  body = document.createElement('div');
+  body.className = 'msg-body';
+  bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  body.appendChild(bubble);
+
+  containerMsgEl.innerHTML = '';
+  containerMsgEl.appendChild(avatar);
+  containerMsgEl.appendChild(body);
+  return bubble;
+}
+
 /**
  * 从 widgetJson 中提取可读标题，用于"已处理"卡片的定语。
- * 优先使用 json.title 字段，降级从 HTML 的 <title> / <h2> 中提取。
+ * 使用 json.title 字段。
  */
 function _extractWidgetTitle(widgetJson) {
   try {
     const data = typeof widgetJson === 'string' ? JSON.parse(widgetJson) : widgetJson;
     if (data.title) return data.title;
-    // 降级：从 HTML 中找 <title> 或第一个 <h2>
-    const html = data.html || '';
-    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    if (titleMatch) return titleMatch[1].trim();
-    const h2Match = html.match(/<h[12][^>]*>([^<]+)<\/h[12]>/i);
-    if (h2Match) return h2Match[1].replace(/<[^>]+>/g, '').trim();
   } catch (e) {}
   return '';
 }
 
 /**
  * 构建"已处理"静态卡片，用于 widget 触发 canvas 切换后返回主 session 时显示。
- * 不再渲染 iframe，只显示一个轻量提示条。
+ * 不再渲染 widget，只显示一个轻量提示条。
  */
 function _buildProcessedCard(widgetJson) {
   const title = _extractWidgetTitle(widgetJson);
@@ -3650,7 +3575,7 @@ function markLastWidgetProcessed() {
   _lastHtmlWidgetSessionId = null;
 }
 
-/** 将活跃 widget 容器的 DOM 替换为已处理样式（不重建 iframe）。 */
+/** 将活跃 widget 容器的 DOM 替换为已处理样式。 */
 function _applyProcessedStyle(el) {
   if (!el) return;
   el.classList.remove('html-widget-msg');
@@ -3660,8 +3585,9 @@ function _applyProcessedStyle(el) {
   // 提取标题并构建卡片文字
   const title = _extractWidgetTitle(el.dataset.widgetJson || '');
   const label = title ? `${title} · 已在界面上打开` : '已在界面上打开';
-  // 清空 iframe 容器，换为已处理卡片
-  const frameContainer = el.querySelector('.widget-frame-container') ||
+  // 清空 widget 容器，换为已处理卡片
+  const frameContainer = el.querySelector('.aipp-widget-mount') ||
+                         el.querySelector('.widget-frame-container') ||
                          el.querySelector('.html-widget-frame');
   if (frameContainer) {
     frameContainer.replaceWith(Object.assign(document.createElement('div'), {
@@ -3696,16 +3622,6 @@ function msgDeleteWidget(btn) {
     fetch(`/api/sessions/${currentSessionId}/messages/range?from=${idx}&count=1`,
       { method: 'DELETE' }).catch(() => {});
   }
-}
-
-function setIframeSrcdoc(iframe, html, height) {
-  const dark = document.documentElement.dataset.theme === 'dark' || true;
-  iframe.srcdoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-      font-size:13px;line-height:1.5;background:transparent;color:#d0d8f0;padding:12px;}
-  </style></head><body>${html}</body></html>`;
-  iframe.style.height = height;
 }
 
 function applyPreset() {
@@ -3900,6 +3816,7 @@ let _widgetManifests = {};
     (wData.widgets || []).forEach(w => {
       if (w.type) _widgetManifests[w.type] = w;
     });
+    preloadCanvasWidgetsSoon();
   } catch(e) {}
 
   await loadSessions();
