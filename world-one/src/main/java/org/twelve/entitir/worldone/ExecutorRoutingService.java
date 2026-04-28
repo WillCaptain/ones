@@ -330,15 +330,19 @@ public class ExecutorRoutingService {
             String reason
     ) {
         try {
-            AppRegistration worldApp = appRegistry.findAppForTool("world_register_action");
+            // Host 解耦：用通用 runtime_event_callback 协议路由，不绑定具体 tool 名。
+            Map.Entry<AppRegistration, String> cb = appRegistry.findCallbackForEvent("decision_result");
+            if (cb == null) {
+                return Map.of("status", "skipped", "reason", "no callback registered for decision_result");
+            }
+            AppRegistration worldApp = cb.getKey();
             Map<String, Object> payload = getMap(runtimeEvent.get("payload"));
             String decisionId = str(payload.get("decision_id"));
             if (decisionId.isBlank()) {
                 return Map.of("status", "skipped", "reason", "missing decision_id");
             }
-            String url = worldApp.baseUrl()
-                    + "/api/worlds/" + java.net.URLEncoder.encode(worldId, java.nio.charset.StandardCharsets.UTF_8)
-                    + "/decision-result";
+            String pathTemplate = cb.getValue();
+            String url = worldApp.baseUrl() + renderCallbackPath(pathTemplate, worldId);
             Map<String, Object> reqBody = new LinkedHashMap<>();
             reqBody.put("env", env);
             reqBody.put("decision_id", decisionId);
@@ -370,10 +374,12 @@ public class ExecutorRoutingService {
             Map<String, Object> submittedParams
     ) {
         try {
-            AppRegistration worldApp = appRegistry.findAppForTool("world_register_action");
-            String url = worldApp.baseUrl()
-                    + "/api/worlds/" + java.net.URLEncoder.encode(worldId, java.nio.charset.StandardCharsets.UTF_8)
-                    + "/resume-action";
+            Map.Entry<AppRegistration, String> cb = appRegistry.findCallbackForEvent("action_resume");
+            if (cb == null) {
+                return Map.of("status", "skipped", "reason", "no callback registered for action_resume");
+            }
+            AppRegistration worldApp = cb.getKey();
+            String url = worldApp.baseUrl() + renderCallbackPath(cb.getValue(), worldId);
             Map<String, Object> reqBody = new LinkedHashMap<>();
             reqBody.put("env", env);
             reqBody.put("suspension_id", suspensionId);
@@ -495,6 +501,14 @@ public class ExecutorRoutingService {
 
     private static boolean isEmptyOrContains(String expected, String actual) {
         return expected == null || expected.isBlank() || expected.equals(actual);
+    }
+
+    /** 渲染 callback path 模板：替换 {worldId} 等占位符并 URL 编码 worldId。 */
+    static String renderCallbackPath(String template, String worldId) {
+        if (template == null || template.isBlank()) return "";
+        String encoded = worldId == null ? "" :
+                java.net.URLEncoder.encode(worldId, java.nio.charset.StandardCharsets.UTF_8);
+        return template.replace("{worldId}", encoded).replace("{world_id}", encoded);
     }
 
     private static boolean matchList(Object listObj, String actual) {

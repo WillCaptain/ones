@@ -220,6 +220,22 @@ public final class GenericAgentLoop {
         this.workspaceId = workspaceId;
     }
 
+    /**
+     * 构建 {@code _context} payload。AIPP tool 调用统一从这里取，避免 5 处副本漂移。
+     * 包含 {@code appBaseUrl}：AIPP 自身对外可达地址（host 已在 install 时记录），
+     * 用于 AIPP 在 html_widget 里产出指向自己的 iframe URL，无需 AIPP 知道部署细节。
+     * 协议参考 README §7.5。
+     */
+    private Map<String, Object> buildContext(AppRegistration app) {
+        Map<String, Object> ctx = new LinkedHashMap<>();
+        ctx.put("userId",      userId);
+        ctx.put("sessionId",   sessionId);
+        ctx.put("workspaceId", workspaceId != null ? workspaceId : "");
+        ctx.put("agentId",     "worldone");
+        ctx.put("appBaseUrl",  app.baseUrl());
+        return ctx;
+    }
+
     /** 设置当前 workspace 的可读名称，用于 consolidation prompt 注入。 */
     public void setWorkspaceTitle(String workspaceTitle) {
         this.workspaceTitle = workspaceTitle;
@@ -303,12 +319,7 @@ public final class GenericAgentLoop {
             args = registry.injectEnvVars(app.appId(), args);
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("args", args);
-            body.put("_context", Map.of(
-                "userId",      userId,
-                "sessionId",   sessionId,
-                "workspaceId", workspaceId   != null ? workspaceId   : "",
-                "agentId",     "worldone"
-            ));
+            body.put("_context", buildContext(app));
             HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                 .header("Content-Type", "application/json")
                 .timeout(Duration.ofSeconds(60))
@@ -359,9 +370,10 @@ public final class GenericAgentLoop {
             //   (c) universal tool（仅 main session） → 该 tool 已在 Router 内执行并 commit
             //       到 history，Executor 接着把结果总结回复给用户
             // 可见 skill 为空时直接跳过 Router，保持和改造前完全一致的 flat 行为。
-            runSkillRouterIfApplicable(userMessage, emit, toolsCalledThisTurn);
+            boolean routerHandledTurn =
+                    runSkillRouterIfApplicable(userMessage, emit, toolsCalledThisTurn, turnStart);
             int rounds = 0;
-            while (rounds++ < MAX_TOOL_ROUNDS) {
+            while (!routerHandledTurn && rounds++ < MAX_TOOL_ROUNDS) {
                 String effectiveToolsJson = mergeCanvasTools(tools);
                 if (dbgOn()) {
                     dbg("round={} skill_loaded={} effective_tools_json_len={} context_msgs={}",
@@ -437,7 +449,8 @@ public final class GenericAgentLoop {
 
                         // html_widget：widget 已渲染到对话，本轮就此结束，
                         // 不再让 LLM 续写文字（否则文字会覆盖 widget）
-                        if (isHtmlWidget(toolResult, tc.name())) {
+                        if (isHtmlWidget(toolResult, tc.name(),
+                                registry.getOutputWidgetRules(tc.name()))) {
                             htmlWidgetRendered = true;
                         }
 
@@ -510,7 +523,7 @@ public final class GenericAgentLoop {
             // memory_consolidate 不进 LLM 工具列表，由 Host 在每轮结束后自动异步触发。
             List<Map<String, Object>> turnSnapshot =
                     new ArrayList<>(history.subList(turnStart, history.size()));
-            autoConsolidateMemory(turnSnapshot);
+            triggerPostTurnSkills(turnSnapshot);
 
         } catch (Exception e) {
             emit.accept(ChatEvent.error("LLM error: " + e.getMessage()));
@@ -526,59 +539,41 @@ public final class GenericAgentLoop {
     // ── internal ──────────────────────────────────────────────────────────
 
     /**
-     * 构建 LLM 上下文窗口：system + 最近 CONTEXT_WINDOW 条消息。
+     * 构建 LLM 上下文窗口：一条装配好的 system 消息 + 末尾 CONTEXT_WINDOW 条 history。
      *
-     * <p>System message 按 3 层结构动态组合（命中后可追加 AAP-Post 执行层）：
-     * <ol>
-     *   <li>Layer 1 — worldone system prompt（全局铁律 + app 能力说明）</li>
-     *   <li>Layer 2 — session entry prompt（task/event session 专有）</li>
-     *   <li>Layer 3 — widget context prompt（canvas 模式下追加）</li>
+     * <p>装配顺序（必须与 {@code docs/aipp-prompt-architecture.md} 「六层提示词结构」一致；
+     * 由 {@code PromptLayerOrderingTest} 锁定，任何调整都要同时更新文档与测试）：
+     *
+     * <ol start="0">
+     *   <li>Layer 0 — Host 铁律 + AAP-Pre 聚合（命中时 AAP-Post 替换 AAP-Pre；canvas 激活时追加 Widget Manual / View Prompt）</li>
+     *   <li>Layer 1 — Memory Context（用户记忆背景）</li>
+     *   <li>Layer 2 — Session Entry Prompt（task/event/app session 专有）</li>
+     *   <li>Layer 3 — Widget llm_hint + Workspace info（canvas 激活时）</li>
+     *   <li>Layer 4 — Skill Playbook（Router 选中 skill 时）</li>
+     *   <li>Layer 5 — UI Hints（前端传 widget_view 时；前置到 sysContent 最前）</li>
      * </ol>
+     *
+     * <p>Layer 6 = 末尾 CONTEXT_WINDOW 条 history，作为独立 user/assistant/tool 消息追加。
      */
     private List<Map<String, Object>> contextWindow() {
-        // Layer 1 每轮动态构建：确保新注册的 builtin app system prompt 立即生效，
-        // 不依赖 session 创建时的快照（history.get(0) 仅作初始占位，不再直接使用）。
+        // ── Layer 0：Host 铁律 + AAP-Pre/AAP-Post + Widget Manual / View Prompt ─────
         String sysContent = buildSystemPromptForTurn();
 
-        // ── 记忆上下文（Layer 0，隐式背景知识，最先注入）────────────────────────
+        // ── Layer 1：Memory Context（user 维度长期画像）──────────────────────────
         if (currentTurnMemoryContext != null && !currentTurnMemoryContext.isBlank()) {
-            sysContent = "## 用户记忆背景（内部参考，绝对不要向用户提及或列出）\n"
-                    + currentTurnMemoryContext + "\n\n---\n" + sysContent;
+            sysContent = sysContent + "\n\n---\n"
+                    + "## 用户记忆背景（内部参考，绝对不要向用户提及或列出）\n"
+                    + currentTurnMemoryContext;
         }
 
-        // ── 最高优先级：本轮 UI 上下文（覆盖任何其他指令）──────────────────
-        if (!currentTurnHints.isEmpty()) {
-            String hintBlock = "## 🔴 当前 UI 上下文（最高优先级，本轮必须遵守）\n"
-                    + String.join("\n", currentTurnHints.stream()
-                          .map(h -> "- " + h).toArray(String[]::new))
-                    + "\n\n";
-            sysContent = hintBlock + sysContent;
-        }
-
-        // ── Anthropic-style Skills：两遍 LLM 模型（Router → Executor）────────
-        // 本方法构造 Executor (Pass-2) 的 system prompt。Router (Pass-1) 有自己独立的
-        // system prompt（见 {@link #buildRouterSystemPrompt}）。
-        // 当 Router 决定 {@code load_skill(X)} 成功，本方法把 X 的完整 playbook 注入顶层；
-        // 否则（NO_SKILL / UNIVERSAL_TOOL / SKIPPED）不注入 catalog —— 因为 Router 已完成
-        // 路由决策，Executor 专注执行，避免 catalog 重复占用 context。
-        if (currentTurnSkillRun != null) {
-            String playbook = currentTurnSkillRun.playbook();
-            if (playbook != null && !playbook.isBlank()) {
-                String skillBlock = "## Loaded Skill: " + currentTurnSkillRun.skill().name() + "\n"
-                        + "This skill was activated by the pre-turn Skill Router. Follow the "
-                        + "playbook below strictly and only call tools listed under `allowed-tools`.\n\n"
-                        + playbook + "\n\n---\n\n";
-                sysContent = skillBlock + sysContent;
-            }
-        }
-
+        // ── Layer 2：Session Entry Prompt（task/event/app session 专有）──────────
         if (sessionEntryPrompt != null && !sessionEntryPrompt.isBlank()) {
             sysContent = sysContent + "\n\n---\n" + sessionEntryPrompt;
         }
 
+        // ── Layer 3：Widget llm_hint + Workspace info（仅 canvas 激活）──────────
         if (activeWidgetType != null) {
             String widgetCtx = registry.widgetContextPrompt(activeWidgetType);
-            // 注入当前工作区标识（每轮动态计算，不进入 history），让 LLM 始终知道自己在哪个世界
             String wsContext = "";
             if (workspaceId != null && !workspaceId.isBlank()) {
                 wsContext = "**当前世界**：" + (workspaceTitle != null ? workspaceTitle : workspaceId)
@@ -593,6 +588,31 @@ public final class GenericAgentLoop {
             } else if (!wsContext.isBlank()) {
                 sysContent = sysContent + "\n\n---\n" + wsContext;
             }
+        }
+
+        // ── Layer 4：Skill Playbook（Anthropic-style Router → Executor）──────────
+        // Router (Pass-1) 选中 load_skill(X) 时，把 X 的完整 playbook 注入；
+        // 否则（NO_SKILL / UNIVERSAL_TOOL / SKIPPED）不注入，避免 catalog 重复占用 context。
+        if (currentTurnSkillRun != null) {
+            String playbook = currentTurnSkillRun.playbook();
+            if (playbook != null && !playbook.isBlank()) {
+                String skillBlock = "\n\n---\n## Loaded Skill: " + currentTurnSkillRun.skill().name() + "\n"
+                        + "This skill was activated by the pre-turn Skill Router. Follow the "
+                        + "playbook below strictly and only call tools listed under `allowed-tools`.\n\n"
+                        + playbook;
+                sysContent = sysContent + skillBlock;
+            }
+        }
+
+        // ── Layer 5：UI Hints（最高优先级，前置到 sysContent 最前）───────────────
+        // 注意：Layer 编号代表"装配阶段"，UI Hints 虽然编号最高，但**写入位置在最前**，
+        // 用于覆盖前面所有层的指令（每轮 LLM 必须最先看到）。
+        if (!currentTurnHints.isEmpty()) {
+            String hintBlock = "## 🔴 当前 UI 上下文（最高优先级，本轮必须遵守）\n"
+                    + String.join("\n", currentTurnHints.stream()
+                          .map(h -> "- " + h).toArray(String[]::new))
+                    + "\n\n";
+            sysContent = hintBlock + sysContent;
         }
 
         List<Map<String, Object>> ctx = new ArrayList<>();
@@ -721,12 +741,7 @@ public final class GenericAgentLoop {
             }
             refreshArgs = registry.injectEnvVars(app.appId(), refreshArgs);
             reqBody.put("args", refreshArgs);
-            reqBody.put("_context", Map.of(
-                "userId",      userId,
-                "sessionId",   sessionId,
-                "workspaceId", workspaceId != null ? workspaceId : "",
-                "agentId",     "worldone"
-            ));
+            reqBody.put("_context", buildContext(app));
             HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                 .header("Content-Type", "application/json")
                 .timeout(Duration.ofSeconds(30))
@@ -756,13 +771,9 @@ public final class GenericAgentLoop {
             Map<String, Object> body = new LinkedHashMap<>();
             Map<String, Object> args = registry.injectEnvVars(app.appId(), tc.parsedArgs());
             body.put("args", args);
-            body.put("_context", Map.of(
-                "userId",         userId,
-                "sessionId",      sessionId,
-                "workspaceId",    workspaceId   != null ? workspaceId   : "",
-                "workspaceTitle", workspaceTitle != null ? workspaceTitle : "",
-                "agentId",        "worldone"
-            ));
+            Map<String, Object> ctx = buildContext(app);
+            ctx.put("workspaceTitle", workspaceTitle != null ? workspaceTitle : "");
+            body.put("_context", ctx);
 
             // inject_context.turn_messages=true：注入完整本轮消息列表（Option B）
             if (registry.requiresTurnMessages(tc.name())) {
@@ -797,18 +808,19 @@ public final class GenericAgentLoop {
             JsonNode root = JSON.readTree(toolResult);
             String widgetType = registry.findOutputWidgetForSkill(skillName);
 
-            // world_design 成功响应含 graph + session_id。若本地未安装 app manifest（skill→widget 索引缺失），
-            // 上面会得到 null，导致既不 SESSION 也不 CANVAS，界面永远停在 Chat。
-            boolean worldDesignHasGraph = "world_design".equals(skillName)
-                    && root.has("graph") && !root.path("graph").isNull()
-                    && root.has("session_id") && !root.path("session_id").asText("").isBlank();
-            if (widgetType == null && worldDesignHasGraph) {
-                widgetType = "entity-graph";
+            // Host 解耦协议：output_widget_rules.force_canvas_when 列出的字段全部存在且非空时，
+            // 强制进入 canvas 模式（即便响应同时带 html_widget）；default_widget 提供兜底类型。
+            // 替代旧 world_design+graph+session_id 的硬编码特判。
+            Map<String, Object> rules = registry.getOutputWidgetRules(skillName);
+            boolean forceCanvas = AppRegistry.matchesForceCanvas(root, rules);
+            if (widgetType == null && forceCanvas) {
+                String dw = registry.getDefaultWidget(skillName);
+                if (dw != null && !dw.isBlank()) widgetType = dw;
             }
 
             // ── HTML_WIDGET：Chat 内嵌 HTML 卡片（is_canvas_mode=false）──────────
-            // 消歧只含 html_widget；若异常地同时带了 graph，应优先进入 Canvas，避免 Host 只吃卡片分支。
-            if (root.has("html_widget") && !(worldDesignHasGraph)) {
+            // 满足 force_canvas 时优先 Canvas，避免被 html_widget 分支吞掉。
+            if (root.has("html_widget") && !forceCanvas) {
                 JsonNode hw = root.get("html_widget");
                 emit.accept(ChatEvent.htmlWidget(hw.toString()));
                 return null; // html_widget 不触发 canvas/session 事件
@@ -1128,14 +1140,15 @@ public final class GenericAgentLoop {
      * </ul>
      * 空 catalog 时直接返回，跳过整个 Router 调用。
      */
-    private void runSkillRouterIfApplicable(
+    private boolean runSkillRouterIfApplicable(
             String userMessage,
             Consumer<ChatEvent> emit,
-            List<String> toolsCalledThisTurn) {
+            List<String> toolsCalledThisTurn,
+            int turnStart) {
         List<SkillDefinition> catalog = currentVisibleSkills();
         if (catalog.isEmpty()) {
             dbg("ROUTER SKIPPED (no visible skills)", (Object[]) new Object[0]);
-            return;
+            return false;
         }
 
         List<Map<String, Object>> allBaseTools = registry.allSkillsAsTools();
@@ -1178,7 +1191,7 @@ public final class GenericAgentLoop {
         } catch (Exception e) {
             log.warn("[SkillRouter] call failed: {} — falling back to flat mode", e.getMessage());
             dbg("ROUTER EXCEPTION {} (fallback to flat)", e.getMessage());
-            return;
+            return false;
         }
         long elapsed = System.currentTimeMillis() - t0;
 
@@ -1190,7 +1203,7 @@ public final class GenericAgentLoop {
                     resp.finishReason(), elapsed);
             emit.accept(ChatEvent.annotation(
                     "{\"label\":\"Router: degraded (no tool_call) → flat mode\"}"));
-            return;
+            return false;
         }
 
         LLMCaller.ToolCall tc = calls.get(0);
@@ -1208,13 +1221,13 @@ public final class GenericAgentLoop {
                 emit.accept(ChatEvent.annotation(
                         "{\"label\":\"Router: Skill load failed → flat mode (" + escapeJson(shorten(result, 80)) + ")\"}"));
             }
-            return;
+            return false;
         }
 
         if (NO_SKILL_MATCHES_TOOL.equals(name)) {
             dbg("ROUTER decision=no_skill_matches latency={}ms", elapsed);
             emit.accept(ChatEvent.annotation("{\"label\":\"Router: no skill match → flat mode\"}"));
-            return;
+            return false;
         }
 
         // Universal tool — 直接在 Router 里执行，commit 到 history，让 Executor 续跑汇报
@@ -1234,6 +1247,27 @@ public final class GenericAgentLoop {
         toolMsg.put("name",         name);
         toolMsg.put("content",      toolResult);
         history.add(toolMsg);
+
+        // 与 Executor 主循环保持一致：把 widget / canvas / task-session 等事件
+        // 发到前端；否则前端拿不到 html_widget，只会看到 LLM 后续把 HTML 总结成文字。
+        String activatedAppId = applyAapPostFromToolResult(toolResult, name);
+        if (activatedAppId != null && !activatedAppId.isBlank()) {
+            emit.accept(ChatEvent.annotation(
+                    "{\"label\":\"AAP-Post: " + escapeJson(registry.appDisplayName(activatedAppId)) + "\"}"));
+        }
+        extractEvents(toolResult, name, emit);
+
+        // html_widget：widget 已渲染到对话，本轮就此结束。
+        // 清空本轮 history（user + tool_call + tool_result），避免 Executor LLM
+        // 再次调用并把 HTML 总结成文字，覆盖掉 widget。
+        if (isHtmlWidget(toolResult, name, registry.getOutputWidgetRules(name))) {
+            if (history.size() > turnStart) {
+                history.subList(turnStart, history.size()).clear();
+            }
+            dbg("ROUTER universal_tool html_widget rendered → skip Executor", (Object[]) new Object[0]);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -1413,12 +1447,7 @@ public final class GenericAgentLoop {
                 args.put("user_message", userMessage != null ? userMessage : "");
                 args = registry.injectEnvVars(app.appId(), args);
                 body.put("args", args);
-                body.put("_context", Map.of(
-                    "userId",         userId,
-                    "sessionId",      sessionId,
-                    "workspaceId",    workspaceId != null ? workspaceId : "",
-                    "agentId",        "worldone"
-                ));
+                body.put("_context", buildContext(app));
                 HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                     .header("Content-Type", "application/json")
                     .timeout(Duration.ofSeconds(15))
@@ -1438,44 +1467,43 @@ public final class GenericAgentLoop {
     }
 
     /**
-     * Host 后台记忆整合：在每轮对话结束后异步调用 memory_consolidate（background skill），
-     * 将本轮消息传给 Memory Agent 做静默整合。
+     * Host 通用 post-turn 调度：每轮对话结束后异步调用所有声明 {@code lifecycle:"post_turn"}
+     * 的 skill，将本轮消息作为上下文传入。Fire-and-forget。
      *
-     * <p>Fire-and-forget：不等待结果，不向用户暴露任何信息。
-     * 若 memory_consolidate 未注册（memory-one 未接入），静默跳过。
+     * <p>替代旧的 memory_consolidate 字符串硬编码。AIPP 通过 skill manifest 的
+     * {@code lifecycle} 字段自描述调度时机。
      */
-    private void autoConsolidateMemory(List<Map<String, Object>> turnMessages) {
-        Map<String, Object> skill = registry.findBackgroundSkill("memory_consolidate");
-        if (skill == null) return;
-        try {
-            AppRegistration app = registry.findAppForTool("memory_consolidate");
-            String url = app.toolUrl("memory_consolidate");
+    private void triggerPostTurnSkills(List<Map<String, Object>> turnMessages) {
+        var skills = registry.findSkillsByLifecycle("post_turn");
+        if (skills.isEmpty()) return;
+        for (var entry : skills) {
+            AppRegistration app = entry.getKey();
+            Map<String, Object> skill = entry.getValue();
+            Object nameObj = skill.get("name");
+            if (nameObj == null) continue;
+            String skillName = nameObj.toString();
+            try {
+                String url = app.toolUrl(skillName);
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("args", registry.injectEnvVars(app.appId(), Map.of()));
+                Map<String, Object> ptCtx = buildContext(app);
+                ptCtx.put("workspaceTitle", workspaceTitle != null ? workspaceTitle : "");
+                body.put("_context", ptCtx);
+                body.put("turn_messages", turnMessages);
 
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("args", registry.injectEnvVars(app.appId(), Map.of()));
-            body.put("_context", Map.of(
-                "userId",         userId,
-                "sessionId",      sessionId,
-                "workspaceId",    workspaceId   != null ? workspaceId   : "",
-                "workspaceTitle", workspaceTitle != null ? workspaceTitle : "",
-                "agentId",        "worldone"
-            ));
-            body.put("turn_messages", turnMessages);
-
-            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                .header("Content-Type", "application/json")
-                .timeout(Duration.ofSeconds(60))
-                .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
-                .build();
-            http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
-                .whenComplete((resp, err) -> {
-                    if (err != null) log.warn("[AutoConsolidate] Failed: {}", err.getMessage());
-                    else log.debug("[AutoConsolidate] Done: {}", resp.statusCode());
-                });
-        } catch (IllegalArgumentException e) {
-            // memory_consolidate 工具未在 toolIndex 注册，静默跳过
-        } catch (Exception e) {
-            log.warn("[AutoConsolidate] Error building request: {}", e.getMessage());
+                HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(60))
+                    .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
+                    .build();
+                http.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                    .whenComplete((resp, err) -> {
+                        if (err != null) log.warn("[PostTurn:{}] Failed: {}", skillName, err.getMessage());
+                        else log.debug("[PostTurn:{}] Done: {}", skillName, resp.statusCode());
+                    });
+            } catch (Exception e) {
+                log.warn("[PostTurn:{}] Error: {}", skillName, e.getMessage());
+            }
         }
     }
 
@@ -1628,20 +1656,25 @@ public final class GenericAgentLoop {
      * 是否为「仅 Chat 内嵌卡片、不走 Canvas」的工具结果。
      * world_design 在误带 html_widget 但同时返回 graph+session_id 时，应与 extractEvents 一致地视为画布回合。
      */
-    static boolean isHtmlWidget(String toolResultJson, String toolName) {
+    /**
+     * Host 解耦版：rules（来自 skill 的 {@code output_widget_rules}）若命中 {@code force_canvas_when}
+     * 则不视为 html_widget 卡片。{@code rules} 可为空 map（旧行为，纯 html_widget 判断）。
+     */
+    static boolean isHtmlWidget(String toolResultJson, String toolName, Map<String, Object> rules) {
         if (toolResultJson == null || toolResultJson.isBlank()) return false;
         try {
             JsonNode root = JSON.readTree(toolResultJson);
             if (root.path("html_widget").isMissingNode()) return false;
-            if ("world_design".equals(toolName)
-                    && root.has("graph") && !root.path("graph").isNull()
-                    && root.has("session_id") && !root.path("session_id").asText("").isBlank()) {
-                return false;
-            }
+            if (AppRegistry.matchesForceCanvas(root, rules)) return false;
             return true;
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /** 兼容旧签名（无 rules 上下文时使用）。 */
+    static boolean isHtmlWidget(String toolResultJson, String toolName) {
+        return isHtmlWidget(toolResultJson, toolName, Map.of());
     }
 
     static boolean requiresUserConfirmation(String toolResultJson) {
@@ -1664,14 +1697,23 @@ public final class GenericAgentLoop {
 
     /**
      * 根据工具名推断所属 AIPP 标签，用于在 UI 中展示灰色注解行。
-     * 返回 null 表示不需要注解（Host 内置工具或未知）。
+     * 返回 null 表示不需要注解（Host 内置工具、未注册或当前用户视角无关）。
+     *
+     * <p>Host 解耦：通过 {@link AppRegistry#findAppForTool} 查到归属 app 的展示名，
+     * 不再用 tool 名前缀硬编码到具体 AIPP。
      */
-    private static String resolveAippLabel(String toolName) {
+    private String resolveAippLabel(String toolName) {
         if (toolName == null) return null;
-        // world-entitir AIPP 的工具集
-        if (toolName.startsWith("world_") || toolName.equals("onboarding_intake")) {
-            return "world-entitir";
+        try {
+            AppRegistration app = registry.findAppForTool(toolName);
+            if (app == null) return null;
+            String appId = app.appId();
+            if (appId == null || appId.isBlank()) return null;
+            // host 自身的内置工具不需注解
+            if (appId.startsWith("worldone-")) return null;
+            return appId;
+        } catch (IllegalArgumentException e) {
+            return null;
         }
-        return null;
     }
 }

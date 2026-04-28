@@ -36,11 +36,16 @@ public class MessageHistoryStore {
     }
 
     /**
-     * 加载某 agent session 的历史消息，返回 OpenAI 格式的 Map 列表。
-     * 供 {@link GenericAgentLoop#restoreHistory} 使用（全量，用于 LLM 上下文重建）。
+     * 加载某 (agent_session, ui_session) 的历史消息，返回 OpenAI 格式的 Map 列表。
+     * 供 {@link GenericAgentLoop#restoreHistory} 使用，用于 LLM 上下文重建。
+     *
+     * <p><b>双键隔离</b>：本方法严格按 {@code (agentSessionId, uiSessionId)} 双键过滤，
+     * 确保单一 ui session 之间的对话历史不会跨入彼此的 LLM 上下文。
+     * 这是 AIPP 上下文隔离协议（见 {@code docs/aipp-prompt-architecture.md}
+     * "History Composition"）的核心承诺。
      */
-    public List<Map<String, Object>> loadHistory(String agentSessionId) {
-        return repo.findByAgentSessionIdOrderByCreatedAtAsc(agentSessionId)
+    public List<Map<String, Object>> loadHistory(String agentSessionId, String uiSessionId) {
+        return repo.findByAgentSessionIdAndUiSessionIdOrderByCreatedAtAsc(agentSessionId, uiSessionId)
                 .stream()
                 .<Map<String, Object>>map(e -> {
                     if ("widget".equals(e.getRole())) {

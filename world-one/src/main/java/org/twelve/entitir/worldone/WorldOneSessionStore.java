@@ -44,13 +44,16 @@ public class WorldOneSessionStore {
     }
 
     /**
-     * 获取或创建 GenericAgentLoop。
-     * 若是首次创建（如重启后），从数据库恢复历史消息。
+     * 获取或创建 GenericAgentLoop（双键隔离版本）。
+     * 若是首次创建（如重启后），从数据库恢复 {@code (agentSessionId, uiSessionId)} 双键过滤后的历史消息。
+     *
+     * <p><b>必须使用本方法</b>：旧的单键 {@code get(agentSessionId)} 已被移除，
+     * 因为按 agent 单键加载会把多个 ui session 的历史一并捞回，污染 LLM 上下文。
      */
-    public GenericAgentLoop get(String sessionId) {
-        return sessions.computeIfAbsent(sessionId, id -> {
+    public GenericAgentLoop get(String agentSessionId, String uiSessionId) {
+        return sessions.computeIfAbsent(agentSessionId, id -> {
             GenericAgentLoop loop = createLoop(id);
-            List<Map<String, Object>> history = messageHistory.loadHistory(id);
+            List<Map<String, Object>> history = messageHistory.loadHistory(id, uiSessionId);
             if (!history.isEmpty()) {
                 loop.restoreHistory(history);
             }

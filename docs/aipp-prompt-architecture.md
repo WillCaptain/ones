@@ -33,45 +33,132 @@ AAP 分两层：
 
 ---
 
-## 四层提示词结构 + 命中后动态层
+## 六层提示词结构 + 条件叠加
+
+> 设计原则：**先立身份与铁律，再给参考资料，最后追加当前任务上下文与历史**。
+> Layer 编号即拼接顺序，编号越小越靠前（更早建立的"身份/规则"层级越高）。
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Layer 0：Memory Context（每轮动态注入）               │
-│  "## 用户记忆快照" — 来自 memory_load 的结果           │
-│  由 world-one Host 在调用 LLM 前自动注入                │
-├─────────────────────────────────────────────────────┤
-│  Layer 1：System Prompt（每轮动态装配）                  │
-│                                                     │
-│  ┌─────────────────────────────────────────────┐    │
-│  │ world-one 基础系统提示（通用 Agent 行为规范）  │    │
-│  │                                             │    │
-│  │ • 工具调用铁律：有意图必调工具               │    │
-│  │ • 历史解读规则：历史=参考，不=已执行  ←核心   │    │
-│  │ • 工具响应解读规范                          │    │
-│  │ • Session 判断规范                         │    │
-│  └─────────────────────────────────────────────┘    │
-│                                                     │
-│  ┌─────────────────────────────────────────────┐    │
-│  │ active app AAP-Pre contributions            │    │
-│  │（仅注入当前回合 active 的 app）              │    │
-│  │                                             │    │
-│  │ • memory-one（当 memory app active）         │    │
-│  │ • world-entitir（当 world app active）       │    │
-│  │ • 其他 app（同理）                           │    │
-│  └─────────────────────────────────────────────┘    │
-├─────────────────────────────────────────────────────┤
-│  Layer 2：Session Entry Prompt（Task/Event session） │
-│  仅 task/event session 有；conversation 无           │
-├─────────────────────────────────────────────────────┤
-│  Layer 3：Widget Context Prompt（canvas 激活时追加）  │
-│  来自当前激活 widget 的 llm_hint 字段               │
-├─────────────────────────────────────────────────────┤
-│  Layer X：AAP-Post（命中后临时注入）                  │
-│  仅在本轮命中某 AIPP 后进入下一轮 LLM 循环时注入       │
-│  默认作用域 this_turn（本轮结束即清理）                │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│  Layer 0：Host 铁律 + AAP-Pre 聚合（必有，每轮装配）       │  main ✓  task ✓  canvas ✓
+│   · world-one 通用 Agent 行为规范                          │
+│     - 工具调用铁律 / 历史=参考 / Session 判断 / 工具响应  │
+│   · 当前 active app 的 AAP-Pre 路由规则                    │
+│     - 何时该命中该 app（按声明的 activate_when）           │
+│   · 命中后**替换**：AAP-Post 段落取代 AAP-Pre 段落         │
+│   · canvas 激活时，base 之后追加：                         │
+│       Widget Manual (widget.system_prompt)                 │
+│       View Prompt   (view.system_prompt)                   │
+├─────────────────────────────────────────────────────────┤
+│  Layer 1：Memory Context（必有，每轮动态注入）             │  main ✓  task ✓  canvas ✓
+│   · "## 用户记忆背景" — 来自 memory_load 的结果            │
+│   · per-user 维度（跨 session 长期画像）                   │
+│   · 仅注入到 system，绝不写入 history                      │
+├─────────────────────────────────────────────────────────┤
+│  Layer 2：Session Entry Prompt（仅 task/event/app）        │  main ✗  task ✓  canvas ✓
+│   · task/event/app session 启动时声明的初始上下文          │
+├─────────────────────────────────────────────────────────┤
+│  Layer 3：Widget llm_hint + Workspace（仅 canvas 激活）    │  main ✗  task ✗  canvas ✓
+│   · 当前激活 widget 的 llm_hint（如 refresh_skill 提示）   │
+│   · 当前 workspace 名称 / id                               │
+│   · 注：Widget Manual / View Prompt 在 Layer 0 base 内追加  │
+├─────────────────────────────────────────────────────────┤
+│  Layer 4：Skill Playbook（条件层，Router 选中 skill 时）   │  ⚠️  ⚠️  ⚠️
+│   · Anthropic-style 两遍模型 Pass-1 路由产物               │
+│   · 含完整 playbook + allowed-tools 收紧                   │
+├─────────────────────────────────────────────────────────┤
+│  Layer 5：UI Hints（条件层，前端传 widget_view 时；最高优先级）│  main ✗  task ⚠️  canvas ⚠️
+│   · "## 🔴 当前 UI 上下文（最高优先级，本轮必须遵守）"      │
+│   · 拼到 sysContent 最前部，覆盖任何更早的指令             │
+│   · 由 active_view 动态算出（每轮可变）                    │
+├═════════════════════════════════════════════════════════┤
+│ ↑↑↑ Layer 0–5 全部拼成 **一条 system 消息**              │
+│ ↓↓↓ 以下作为独立 user/assistant/tool 消息追加            │
+├─────────────────────────────────────────────────────────┤
+│  Layer 6：Session History（必有，本 session 末尾 N 条）    │  main ✓  task ✓  canvas ✓
+│   · N = `CONTEXT_WINDOW`（当前实现 = 30）                  │
+│   · 双键过滤 `(agent_session_id, ui_session_id)`           │
+│   · 超过 N 丢弃头部，保留末尾 N 条                         │
+└─────────────────────────────────────────────────────────┘
 ```
+
+### 各模式实际命中的层
+
+| 模式 | 必有 | 条件触发 |
+|---|---|---|
+| **main session（chat）** | Layer 0 (host+AAP-Pre 全集) · Layer 1 · Layer 6 | Layer 4 (Router 选中 skill 时) |
+| **task / event session** | Layer 0 (归属 app) · Layer 1 · Layer 2 · Layer 6 | Layer 4 / Layer 5 |
+| **canvas 激活态** | Layer 0 (含 Widget Manual / View Prompt) · Layer 1 · Layer 2 · Layer 3 · Layer 6 | Layer 4 / Layer 5 |
+
+> **main session 常态最简**：只有 host 铁律 + AAP-Pre 路由规则、用户记忆、末尾 30 条历史 —— 没有 widget/view/entry/UI hints 的污染。
+
+### 代码锚点
+
+| Layer | 锚点 |
+|---|---|
+| Layer 0 base / AAP-Post 替换 | `GenericAgentLoop.buildSystemPromptForTurn()` |
+| Layer 0 Widget Manual / View Prompt | `buildSystemPromptForTurn()` 末段（`getWidgetSystemPrompt` / `getWidgetViewSystemPrompt`） |
+| Layer 1 Memory | `GenericAgentLoop.contextWindow()` 中追加 `currentTurnMemoryContext` |
+| Layer 2 Session Entry | `contextWindow()` 中追加 `sessionEntryPrompt` |
+| Layer 3 Widget llm_hint | `contextWindow()` 中追加 `registry.widgetContextPrompt(activeWidgetType)` |
+| Layer 4 Skill Playbook | `contextWindow()` 中追加 `currentTurnSkillRun.playbook()` |
+| Layer 5 UI Hints | `contextWindow()` 中前置 `currentTurnHints` |
+| Layer 6 History | `contextWindow()` 末尾 `history.subList(... , end-CONTEXT_WINDOW ..end)` |
+| 双键隔离 | `WorldOneSessionStore.get(agentId, uiId)` + `MessageHistoryStore.loadHistory(agentId, uiId)` |
+
+> **单点装配**：所有 Layer 在 `GenericAgentLoop.contextWindow()` 内拼装。
+> 任何修改必须保持上述顺序，并由 `PromptLayerOrderingTest` 锁定。
+
+---
+
+## History Composition（对话历史装配规则）
+
+> 上面的分层只描述 **system prompt** 的装配。发往 LLM 的完整请求还会带 history（user/assistant/tool 消息）。本节定义 history 怎么来 —— 这是上下文隔离的核心承诺，**任何重构都必须保持这条规则**。
+
+### 核心规则
+
+发往 LLM 的 history 必须满足：
+
+1. **双键过滤**：`history` 仅由 `(agent_session_id, ui_session_id)` 双键命中的消息组成。
+   单键加载（仅按 `agent_session_id`）已废弃 —— 它会把同一 agent 名下不同 ui session 的消息混在一起，造成跨 session 上下文污染。
+2. **末尾窗口**：取双键过滤后的末尾 `CONTEXT_WINDOW`（当前 = 30）条；超过则丢弃头部。
+3. **不跨 session 复用**：每个 task/world/app 子 session 必须分配独立的 `agent_session_id`，绝不复用 `main` 或其他 session 的 agent_id。
+   实施点：`WorldOneChatController.enrichSessionEvent()` 用 `agentStore.newSession()` 为每个新 ui session 分配 fresh agent_id。
+4. **删除一致性**：UI 删除按 `ui_session_id` 走（`DELETE /api/sessions/{id}/messages/...`）；
+   清空整条历史的 `clearHistory(agentSessionId)` 仅用于"重置 agent" 这种全量场景，不应在用户的常规删除路径中暴露。
+
+### 实现锚点
+
+| 关注点 | 文件 / 函数 |
+|---|---|
+| 历史加载（双键） | `MessageHistoryStore.loadHistory(agentId, uiId)` |
+| Repo 查询（双键） | `SessionMessageRepository.findByAgentSessionIdAndUiSessionIdOrderByCreatedAtAsc` |
+| Loop 装配 | `WorldOneSessionStore.get(agentId, uiId)` |
+| 上下文裁剪 | `GenericAgentLoop.contextWindow()` 取末尾 `CONTEXT_WINDOW` |
+| 子 session 隔离 | `WorldOneChatController.enrichSessionEvent()` line 466 `freshAgentId` |
+
+### 反例（绝对禁止）
+
+- ❌ `messageHistory.loadHistory(agentSessionId)` 单键加载 —— 已删除。
+- ❌ 把 task session 的消息以 `agent_session_id='main'` 写入 —— 已通过 fresh agent 防止。
+- ❌ UI 删除按 agent 单键走 —— 会误删其他 ui session 的合法消息。
+
+### 单元测试
+
+`MessageHistoryStoreIsolationTest` 锁定双键过滤行为：
+- `loadHistory_filtersByBothAgentAndUiSessionId`：跨 ui session 的消息绝不进入主 session 上下文。
+- `loadHistory_returnsEmpty_whenUiSessionHasNoMessages`：主 session 没有自己消息时返回空，不能 fallback 去捞其他 ui 的消息。
+
+---
+
+## Memory Composition（记忆注入规则）
+
+> Layer 0 注入的"用户记忆背景"是按 **`userId`** 维度（跨 session 长期记忆），不按 ui_session 隔离 —— 这是 memory-one 的设计意图（长期画像、跨会话事实）。但请注意：
+
+1. **粒度**：memory 是 per-user，session 切换不会清除；要清除请走 memory-one 自己的删除工具。
+2. **不污染 history**：memory_context 仅注入到 system prompt 的 Layer 0，**绝不写入 `session_messages` 表**，因此不会被下次 `loadHistory` 重新拉回（避免循环放大）。
+3. **隔离边界**：若未来支持多用户，Layer 0 的注入必须严格按 `userId` 过滤；当前默认 `default` 用户共享 memory 是已知行为。
+
 
 ---
 

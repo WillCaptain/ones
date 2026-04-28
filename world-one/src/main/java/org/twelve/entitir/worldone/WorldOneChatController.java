@@ -248,7 +248,7 @@ public class WorldOneChatController {
                 String agentSessionId = ui != null ? ui.agentSessionId()
                         : agentStore.newSession();
 
-                GenericAgentLoop loop = agentStore.get(agentSessionId);
+                GenericAgentLoop loop = agentStore.get(agentSessionId, uiSessionId);
 
                 if (toolName != null && !toolName.isBlank()) {
                     // 直接调用指定 skill（与 LLM 调用路径相同，经 extractEvents 处理 canvas 事件）
@@ -328,7 +328,7 @@ public class WorldOneChatController {
         // 通过 UiSession → agentSessionId 找到对应 GenericAgentLoop
         UiSession ui = uiStore.find(uiSessionId);
         String agentSessionId = ui != null ? ui.agentSessionId() : uiSessionId;
-        GenericAgentLoop loop = agentStore.get(agentSessionId);
+        GenericAgentLoop loop = agentStore.get(agentSessionId, uiSessionId);
 
         // 若 UiSession 处于 Canvas 模式，确保 loop 的 activeWidgetType 已恢复
         // （服务重启后 loop 是全新的，activeWidgetType 默认为 null）。
@@ -357,7 +357,7 @@ public class WorldOneChatController {
 
         // 若 task session 有 workspaceId，异步注册协作参与记录（幂等）
         if (ui != null && !ui.isConversation() && ui.canvasSessionId() != null) {
-            registerWorkspaceParticipation(ui.canvasSessionId(), ui.name(), "default", registry);
+            publishWorkspaceChanged(ui.canvasSessionId(), ui.name(), "default", registry);
         }
 
         SseEmitter emitter = new SseEmitter(180_000L);
@@ -472,7 +472,7 @@ public class WorldOneChatController {
             //    而不是在当前（触发事件的）loop 上。之前 GenericAgentLoop.extractEvents
             //    直接写自身字段，导致 main loop 被污染成"伪 canvas"。─────────────────
             if (!"main".equals(ui.id())) {
-                GenericAgentLoop taskLoop = agentStore.get(ui.agentSessionId());
+                GenericAgentLoop taskLoop = agentStore.get(ui.agentSessionId(), ui.id());
                 if (taskLoop != null) {
                     if (!widgetType.isBlank()) {
                         taskLoop.setActiveWidgetType(widgetType);
@@ -581,36 +581,20 @@ public class WorldOneChatController {
     }
 
     /**
-     * Fire-and-forget HTTP call to memory-one's /api/memory_workspace_join.
-     * Records that this user has participated in the given workspace (idempotent).
+     * 通过通用事件总线广播 {@code workspace.changed}。
+     * 替代旧的 {@code memory_workspace_join} 硬编码——任何 AIPP 通过在
+     * {@code /api/tools.event_subscriptions} 声明订阅，由 {@link AppRegistry#publishEvent}
+     * POST 到 app 的 {@code /api/events}（payload {@code {type, data}}）。
      */
-    private void registerWorkspaceParticipation(String workspaceId, String workspaceTitle,
-                                                 String userId, AppRegistry reg) {
+    private void publishWorkspaceChanged(String workspaceId, String workspaceTitle,
+                                          String userId, AppRegistry reg) {
         executor.submit(() -> {
             try {
-                AppRegistration app = reg.findAppForTool("memory_workspace_join");
-                if (app == null) return;
-                String url = app.toolUrl("memory_workspace_join");
-                Map<String, Object> args = new java.util.LinkedHashMap<>();
-                args.put("workspace_id", workspaceId);
-                args.put("workspace_title", workspaceTitle != null ? workspaceTitle : workspaceId);
-                args = reg.injectEnvVars(app.appId(), args);
-                Map<String, Object> body = Map.of(
-                    "args", args,
-                    "_context", Map.of(
-                        "userId",      userId,
-                        "workspaceId", workspaceId,
-                        "agentId",     "worldone"
-                    )
-                );
-                java.net.http.HttpClient http = java.net.http.HttpClient.newHttpClient();
-                java.net.http.HttpRequest req = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .timeout(java.time.Duration.ofSeconds(10))
-                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(
-                        new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body)))
-                    .build();
-                http.send(req, java.net.http.HttpResponse.BodyHandlers.discarding());
+                Map<String, Object> data = new java.util.LinkedHashMap<>();
+                data.put("workspace_id",    workspaceId);
+                data.put("workspace_title", workspaceTitle != null ? workspaceTitle : workspaceId);
+                data.put("user_id",         userId);
+                reg.publishEvent("workspace.changed", data);
             } catch (Exception ignored) { }
         });
     }

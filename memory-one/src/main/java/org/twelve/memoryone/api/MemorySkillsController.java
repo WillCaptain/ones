@@ -82,6 +82,9 @@ public class MemorySkillsController {
         all.addAll(enrichToolList(buildSkillList(), "memory-one"));
         all.addAll(buildWidgetScopedTools("memory-one"));
         result.put("tools", all);
+        // Host 解耦协议：声明事件订阅，host 通过通用事件总线 POST 到 /api/events
+        // （payload {type, data}），替代旧的硬编码 memory_workspace_join 直调。
+        result.put("event_subscriptions", List.of("workspace.changed"));
         return result;
     }
 
@@ -227,6 +230,8 @@ public class MemorySkillsController {
         skill.put("inject_context", Map.of("turn_messages", true));
         // background=true：worldone host 自动调用，不暴露给 LLM
         skill.put("background",     true);
+        // Host 解耦协议：lifecycle=post_turn 替代旧的 background 字符串硬编码调度
+        skill.put("lifecycle",      "post_turn");
         return skill;
     }
 

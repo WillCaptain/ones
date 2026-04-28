@@ -11368,9 +11368,79 @@ let _currentAppId = null;
 /** 当前最后一条 html_widget 消息元素（用于 replace-last 逻辑）。 */
 let _lastHtmlWidgetEl = null;
 
+// ── Plan D：通用 widget 挂载（ESM）─────────────────────────────────────────
+//
+// AIPP 把 widget 实现成 ES module，export { mount(targetEl, hostApi, data) }。
+// host 不知道任何 widget 的内部细节，只负责：
+//   1. 从 _widgetManifests[widget_type].render.url 解析模块 URL
+//      （由 WidgetsEndpoint enrich 时附带的 app_base_url 解析为绝对地址）
+//   2. dynamic import 模块
+//   3. 构造 hostApi（callTool 等），调 mod.mount
+// 详见 aipp-protocol README §10.x — Widget Mount。
+
+/** 给 widget 提供的 host 能力。最小集，按需扩展。 */
+function makeHostApi({ widgetType, mountEl }) {
+  return {
+    /** 直接调用某 tool（绕开 LLM），等价于现状的 postMessage {type:'action'}。 */
+    callTool(name, args) {
+      const appId = _currentAppId || 'world';
+      // 复用现有 session-切换 + openAppDirect 逻辑
+      let existingUiSessionId = null;
+      if (args && args.session_id) {
+        const found = Object.values(sessionData).find(s => s.canvasSessionId === args.session_id);
+        if (found) existingUiSessionId = found.id;
+      }
+      return openAppDirect(appId, name, args || {}, existingUiSessionId);
+    },
+    widgetType,
+    mountEl,
+    sessionId: currentSessionId,
+  };
+}
+
+/** 解析 widget manifest 的 render.url 为可 import 的绝对 URL。 */
+function _resolveWidgetUrl(manifest) {
+  const url = manifest?.render?.url;
+  if (!url) return null;
+  if (/^https?:\/\//.test(url)) return url;
+  const base = (manifest.app_base_url || '').replace(/\/$/, '');
+  return base + (url.startsWith('/') ? url : '/' + url);
+}
+
+/** 通用挂载入口。被 renderHtmlWidget 检测到新 shape 时调用，也可被 canvas mode 复用。 */
+async function mountAippWidget(targetEl, widgetType, data) {
+  const manifest = _widgetManifests[widgetType];
+  const url = _resolveWidgetUrl(manifest);
+  if (!url) {
+    targetEl.innerHTML = `<div style="color:#f88;font:13px monospace;padding:12px">`
+      + `widget "${widgetType}" missing render.url in manifest</div>`;
+    return;
+  }
+  // unmount previous widget instance if same target
+  if (targetEl._aippWidgetMod && typeof targetEl._aippWidgetMod.unmount === 'function') {
+    try { targetEl._aippWidgetMod.unmount(); } catch (_) {}
+  }
+  try {
+    const mod = await import(/* @vite-ignore */ url);
+    const api = makeHostApi({ widgetType, mountEl: targetEl });
+    mod.mount(targetEl, api, data);
+    targetEl._aippWidgetMod = mod;
+  } catch (e) {
+    console.error('[mountAippWidget] failed', widgetType, url, e);
+    targetEl.innerHTML = `<div style="color:#f88;font:13px monospace;padding:12px">`
+      + `Failed to load widget "${widgetType}": ${e.message}</div>`;
+  }
+}
+
 function renderHtmlWidget(json, containerMsgEl) {
   let data;
   try { data = typeof json === 'string' ? JSON.parse(json) : json; } catch(e) { return; }
+
+  // ── Plan D 新形：{widget_type, data, title} → 走 ESM 挂载路径 ──────────
+  if (data && data.widget_type) {
+    return _renderAippWidgetMessage(data, containerMsgEl);
+  }
+
   const html   = data.html   || '';
   const height = data.height || '320px';
   if (!html) return;
@@ -11413,6 +11483,41 @@ function renderHtmlWidget(json, containerMsgEl) {
   delete containerMsgEl.dataset.processed; // 确保未处理状态
 
   setIframeSrcdoc(iframe, html, height);
+  _lastHtmlWidgetEl = containerMsgEl;
+  _lastHtmlWidgetSessionId = currentSessionId;
+  scrollToBottom();
+}
+
+/**
+ * Plan D 聊天卡片挂载：在消息元素里建一个 mount 目标 div，调通用 mountAippWidget。
+ * 与 srcdoc 路径不同：没有 iframe、不需要 height、widget JS 直接渲染到 host DOM。
+ */
+function _renderAippWidgetMessage(data, containerMsgEl) {
+  const widgetType = data.widget_type;
+  const widgetData = data.data || {};
+
+  // replace-last：同一条消息上重复挂载就更新内容
+  let mountEl;
+  if (_lastHtmlWidgetEl && _lastHtmlWidgetEl === containerMsgEl) {
+    mountEl = containerMsgEl.querySelector('.aipp-widget-mount');
+    if (mountEl) {
+      mountAippWidget(mountEl, widgetType, widgetData);
+      containerMsgEl.dataset.widgetJson = typeof data === 'string' ? data : JSON.stringify(data);
+      delete containerMsgEl.dataset.processed;
+      return;
+    }
+  }
+
+  mountEl = document.createElement('div');
+  mountEl.className = 'aipp-widget-mount';
+  containerMsgEl.classList.add('html-widget-msg');
+  containerMsgEl.appendChild(mountEl);
+
+  _injectWidgetActions(containerMsgEl);
+  containerMsgEl.dataset.widgetJson = typeof data === 'string' ? data : JSON.stringify(data);
+  delete containerMsgEl.dataset.processed;
+
+  mountAippWidget(mountEl, widgetType, widgetData);
   _lastHtmlWidgetEl = containerMsgEl;
   _lastHtmlWidgetSessionId = currentSessionId;
   scrollToBottom();

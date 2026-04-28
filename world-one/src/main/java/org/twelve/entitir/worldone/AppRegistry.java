@@ -42,7 +42,9 @@ public class AppRegistry {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private static final Path APPS_ROOT =
-        Paths.get(System.getProperty("user.home"), ".ones", "apps");
+        System.getProperty("ones.apps.root") != null
+            ? Paths.get(System.getProperty("ones.apps.root"))
+            : Paths.get(System.getProperty("user.home"), ".ones", "apps");
 
     private final HttpClient http = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(5))
@@ -69,9 +71,9 @@ public class AppRegistry {
      *
      * <p>包含两类 tool：
      * <ol>
-     *   <li>Skill 对应的 tool（world_design、world_list），供 LLM 调用路由</li>
-     *   <li>Widget internal_tools（world_add_definition 等），供 ToolProxy 调用路由；
-     *       这些 tool 不暴露给 LLM，但在 AppRegistry 中有路由记录。</li>
+     *   <li>Skill 对应的 tool（来自 AIPP 的 /api/skills），供 LLM 调用路由</li>
+     *   <li>Widget internal_tools（来自 AIPP widget manifest 的 internal_tools 列表），
+     *       供 ToolProxy 调用路由；这些 tool 不暴露给 LLM，但在 AppRegistry 中有路由记录。</li>
      * </ol>
      */
     private final Map<String, AppRegistration> toolIndex = new ConcurrentHashMap<>();
@@ -110,6 +112,41 @@ public class AppRegistry {
      * </ul>
      */
     private final Map<String, Map<String, Object>> skillInjectContextIndex = new ConcurrentHashMap<>();
+
+    /**
+     * skill_name → output_widget_rules（AIPP 协议扩展，Host 解耦协议）。
+     *
+     * <p>{@code force_canvas_when}：String 列表；当响应 JSON 中所有列出字段都存在且非空时强制
+     * 进入 canvas 模式（即便也带 html_widget）。{@code default_widget}：兜底 widget_type，用于
+     * 本地未安装 widget manifest 时仍能正确路由到 canvas。
+     *
+     * <p>替代 host 对具体 skill 名 + 字段组合的硬编码（旧：world_design + graph + session_id）。
+     */
+    private final Map<String, Map<String, Object>> skillOutputWidgetRulesIndex = new ConcurrentHashMap<>();
+
+    /**
+     * skill_name → lifecycle 字符串。{@code post_turn} skill 由 host 在每轮对话结束后异步执行。
+     */
+    private final Map<String, String> skillLifecycleIndex = new ConcurrentHashMap<>();
+
+    /**
+     * appId → event_subscriptions（如 {@code ["workspace.changed"]}）。Host 通过通用事件总线
+     * POST 到 app 的 {@code /api/events} 端点。替代 host 硬编码调用 memory_workspace_join。
+     */
+    private final Map<String, Set<String>> appEventSubscriptionsIndex = new ConcurrentHashMap<>();
+
+    /**
+     * event_name → (app, path)。来自 skill 或 app 顶层 {@code runtime_event_callback}。
+     * 替代 ExecutorRoutingService 对具体 tool 名的硬编码定位。
+     */
+    private final Map<String, Map.Entry<AppRegistration, String>> runtimeEventCallbackIndex = new ConcurrentHashMap<>();
+
+    /**
+     * skill_name → display label（取自 skill manifest 的 {@code display_label_zh} 或
+     * {@code display_name}）。供 host 通过 {@code GET /api/tool-labels} 暴露给前端动态查表，
+     * 替代前端硬编码的 TOOL_LABELS 字典。
+     */
+    private final Map<String, String> toolDisplayLabelIndex = new ConcurrentHashMap<>();
 
     // ── View / Refresh 索引（AIPP Widget View 协议）──────────────────────────
 
@@ -353,10 +390,16 @@ public class AppRegistry {
         return null;
     }
 
-    /** Host 全局规则（不含具体 AIPP 业务规则，但包含本域 app_list_view 的路由）。 */
+    /**
+     * Host 全局规则。
+     *
+     * <p><b>解耦原则</b>：本提示词不包含任何具体 AIPP 名字、tool 名、widget 类型或领域词。
+     * 各 AIPP 的领域规则通过 {@code prompt_contributions[layer=aap_pre]} 自行贡献，
+     * 由 {@link #aggregatedPrePrompt(java.util.Set)} 拼装。
+     */
     public String hostSystemPrompt() {
         return """
-            你是 World One，一个通用 AI 智能体。所有回复使用中文。
+            你是 World One，一个通用 AI 智能体宿主（host）。所有回复使用中文。
 
             ════════════════════════════════════════
             铁律（违反即为错误响应）
@@ -379,15 +422,12 @@ public class AppRegistry {
             动态视图查询规则（html_widget / canvas / session 面板）
             ════════════════════════════════════════
             用户请求"列出/查看/显示/打开/进入/管理/配置"某类动态对象时，
-            不要根据历史消息、system prompt 中的示例、记忆内容或你自己的知识直接回答。
+            不要根据历史消息、system prompt 中的示例或你自己的知识直接回答。
             你必须先判断是否存在匹配的 tool / skill / widget view：
             - 如果存在，必须调用对应工具获取最新结果。
             - 如果工具返回 html_widget / canvas / session / view 事件，该界面就是最终展示结果。
             - 返回界面后，不要再用普通文字复述列表内容。
             - 如果没有匹配工具，才可以说明"当前没有可用工具展示该内容"。
-
-            动态对象包括但不限于：应用、世界、本体、记忆、任务、会话、decision、action、
-            实体、枚举、配置项、运行状态、日志、用户数据等。
 
             历史中的列表结果只能说明"曾经展示过"，不能代表当前状态。
             每一次用户再次请求列表、查看或管理，都必须重新调用工具刷新。
@@ -396,61 +436,53 @@ public class AppRegistry {
             Session 判断规范
             ════════════════════════════════════════
             - 当前对话历史中已有某个 session_id 时，优先复用，不要重复创建新 session。
-            - 用户说"继续"、"接着做"、"edit XX"、"进入XX"等意图时，
+            - 用户说"继续"、"接着做"、"进入 XX"等意图时，
               先检查历史中是否已有匹配的 session_id，有则直接使用。
             """ + buildAppDomainSection();
     }
 
     /**
-     * Host 自有域：应用（AIPP app / 插件 / 功能模块）。
+     * Host 自有域：应用注册中心（app / 插件 / 功能模块）。
      *
-     * <p>本段只声明 {@code app_list_view} 的路由与参数语义，不注入当前应用数据。
-     * 应用列表是动态状态，必须由工具实时读取并渲染，不能让 LLM 复述 prompt 快照。
+     * <p>本段只声明 {@code app_list_view} 的命中触发词与参数语义。<b>不</b>枚举任何
+     * 具体 AIPP（如世界、记忆等）的主题词；所有具体领域路由由各 AIPP 的
+     * {@code prompt_contributions[layer=aap_pre]} 自行贡献。
      */
     private String buildAppDomainSection() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("\n\n════════════════════════════════════════\n")
-          .append("宿主域：应用（app / 插件 / 功能模块）\n")
-          .append("════════════════════════════════════════\n")
-          .append("【命中本域的触发词（必须是用户明说）】\n")
-          .append("  应用 / app / 插件 / 功能模块 / 已安装了哪些\n")
-          .append("  → 调用 `app_list_view`\n\n")
-          .append("【不属于本域，绝不命中 app_list_view】\n")
-          .append("  - 世界 / 本体 / 本体世界 / ontology —— 交由 world 域\n")
-          .append("  - 记忆 / 会话 / 业务流程（入职等）—— 交由对应 app\n")
-          .append("  注：若用户说\"记忆相关应用\"，核心词是\"应用\"（记忆只是主题限定），\n")
-          .append("      仍命中本工具，把\"记忆\"作为 `query` 交给工具实时过滤。\n\n")
-          .append("【query 参数抽取】\n")
-          .append("  - 用户说\"列出所有应用\"、\"有哪些应用\"等无主题词请求：调用 app_list_view()，不传 query。\n")
-          .append("  - 用户带主题/领域词（如\"记忆相关应用\"、\"HR 应用\"、\"本体相关插件\"）：\n")
-          .append("    调用 app_list_view(query=\"主题词\")，由工具读取最新 registry 后过滤。\n")
-          .append("  - 不要根据 prompt、历史或记忆直接列出应用名称；应用清单是动态数据。\n")
-          .append("  正确示例：\n")
-          .append("    用户：\"列出记忆相关应用\"\n")
-          .append("    调用：app_list_view(query=\"记忆\")\n\n")
-          .append("    用户：\"列出所有应用\"\n")
-          .append("    调用：app_list_view()   // 不传 query\n\n");
-        return sb.toString();
+        return "\n\n════════════════════════════════════════\n"
+             + "宿主域：应用列表（app / 插件 / 功能模块）\n"
+             + "════════════════════════════════════════\n"
+             + "【命中本域的触发词（必须是用户明说）】\n"
+             + "  应用 / app / 插件 / 功能模块 / 已安装了哪些\n"
+             + "  → 调用 `app_list_view`\n\n"
+             + "【query 参数抽取】\n"
+             + "  - 用户无主题词（\"列出所有应用\"、\"有哪些应用\"）：调用 app_list_view()，不传 query。\n"
+             + "  - 用户带任意主题词（如 \"X 相关应用\"、\"X 插件\"）：\n"
+             + "    调用 app_list_view(query=\"主题词\")，由工具读取最新 registry 后过滤。\n"
+             + "  - 不要根据 prompt 或历史直接列出应用名称；应用清单是动态数据。\n\n"
+             + "【边界】\n"
+             + "  当用户的核心意图不是\"列出已安装应用\"，而是某个具体业务对象（由各 AIPP\n"
+             + "  通过 prompt_contributions 声明），不要命中本工具，应交由对应 AIPP 的 skill。\n";
     }
 
     /**
      * 聚合 AAP-Pre（命中前规则）：
-     * 1) 始终包含所有 working app；
-     * 2) active app 仅提高优先级（排在前面），但不排他。
+     * - {@code activeAppIds} 为空（或 null）→ 包含所有 working app；
+     * - 非空 → 仅包含活跃 app（避免无关 AIPP 的领域 prompt 污染当前 session）。
      */
     public String aggregatedPrePrompt(Set<String> activeAppIds) {
         refreshMissingAppsIfNeeded();
         StringBuilder sb = new StringBuilder();
         LinkedHashSet<String> orderedAppIds = new LinkedHashSet<>();
-        if (activeAppIds != null) {
+        boolean hasActive = activeAppIds != null && !activeAppIds.isEmpty();
+        if (hasActive) {
             for (String appId : activeAppIds) {
                 if (appId != null && !appId.isBlank() && registry.containsKey(appId)) {
                     orderedAppIds.add(appId);
                 }
             }
-        }
-        for (String appId : registry.keySet()) {
-            orderedAppIds.add(appId);
+        } else {
+            orderedAppIds.addAll(registry.keySet());
         }
         if (orderedAppIds.isEmpty()) return "";
 
@@ -709,6 +741,106 @@ public class AppRegistry {
         return Boolean.TRUE.equals(v);
     }
 
+    // ── Host 解耦：output_widget_rules / lifecycle / event bus / runtime callback ──
+
+    /** 返回 skill 的 output_widget_rules（可能为空 map）。 */
+    public Map<String, Object> getOutputWidgetRules(String skillName) {
+        if (skillName == null) return Map.of();
+        return skillOutputWidgetRulesIndex.getOrDefault(skillName, Map.of());
+    }
+
+    /**
+     * 判断给定工具响应是否触发"强制 canvas"规则（满足 force_canvas_when 全部字段非空）。
+     * 静态方法以便直接在 GenericAgentLoop 中复用。
+     */
+    public static boolean matchesForceCanvas(com.fasterxml.jackson.databind.JsonNode root,
+                                              Map<String, Object> rules) {
+        if (root == null || rules == null || rules.isEmpty()) return false;
+        Object fieldsObj = rules.get("force_canvas_when");
+        if (!(fieldsObj instanceof List<?> fields) || fields.isEmpty()) return false;
+        for (Object f : fields) {
+            if (f == null) continue;
+            String name = f.toString();
+            com.fasterxml.jackson.databind.JsonNode v = root.path(name);
+            if (v.isMissingNode() || v.isNull()) return false;
+            if (v.isTextual() && v.asText("").isBlank()) return false;
+        }
+        return true;
+    }
+
+    /** 返回 skill 的 default_widget（{@code output_widget_rules.default_widget}），可能为 null。 */
+    public String getDefaultWidget(String skillName) {
+        Object dw = getOutputWidgetRules(skillName).get("default_widget");
+        return dw == null ? null : dw.toString();
+    }
+
+    /**
+     * 返回所有声明 {@code lifecycle == lifecycle} 的 skill 列表（[app, skill] pair）。
+     * 兼容旧字段：{@code background:true} 视为等价 {@code lifecycle:post_turn}（仅当未显式声明时）。
+     */
+    public List<Map.Entry<AppRegistration, Map<String, Object>>> findSkillsByLifecycle(String lifecycle) {
+        refreshMissingAppsIfNeeded();
+        List<Map.Entry<AppRegistration, Map<String, Object>>> result = new ArrayList<>();
+        for (AppRegistration app : registry.values()) {
+            for (Map<String, Object> skill : app.skills()) {
+                Object lc = skill.get("lifecycle");
+                String resolved = lc == null ? null : lc.toString();
+                if (resolved == null && Boolean.TRUE.equals(skill.get("background"))
+                        && "post_turn".equals(lifecycle)) {
+                    resolved = "post_turn";
+                }
+                if (lifecycle.equals(resolved)) {
+                    result.add(Map.entry(app, skill));
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 通用事件总线：把指定事件 POST 到所有声明订阅该事件的 app 的 {@code /api/events}。
+     * Fire-and-forget；失败仅记录 debug 日志。
+     */
+    public void publishEvent(String eventType, Map<String, Object> payload) {
+        if (eventType == null || eventType.isBlank()) return;
+        refreshMissingAppsIfNeeded();
+        for (Map.Entry<String, Set<String>> e : appEventSubscriptionsIndex.entrySet()) {
+            if (!e.getValue().contains(eventType)) continue;
+            AppRegistration app = registry.get(e.getKey());
+            if (app == null) continue;
+            try {
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("type", eventType);
+                body.put("data", payload == null ? Map.of() : payload);
+                String reqBody = JSON.writeValueAsString(body);
+                HttpRequest req = HttpRequest.newBuilder(URI.create(app.baseUrl() + "/api/events"))
+                        .header("Content-Type", "application/json")
+                        .timeout(Duration.ofSeconds(10))
+                        .POST(HttpRequest.BodyPublishers.ofString(reqBody))
+                        .build();
+                http.sendAsync(req, HttpResponse.BodyHandlers.discarding());
+            } catch (Exception ex) {
+                log.debug("publishEvent({}) to {} failed: {}", eventType, e.getKey(), ex.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 返回 (app, path) 用于路由通用运行时事件，未注册时返回 null。
+     * Path 中可能含 {@code {worldId}} 等占位符，由调用方替换。
+     */
+    public Map.Entry<AppRegistration, String> findCallbackForEvent(String eventName) {
+        if (eventName == null) return null;
+        refreshMissingAppsIfNeeded();
+        return runtimeEventCallbackIndex.get(eventName);
+    }
+
+    /** 返回所有 LLM 可见 tool 的 display label 字典（用于 GET /api/tool-labels）。 */
+    public Map<String, String> getAllToolDisplayLabels() {
+        refreshMissingAppsIfNeeded();
+        return new LinkedHashMap<>(toolDisplayLabelIndex);
+    }
+
     // ── View / Refresh 协议（AIPP Widget View）──────────────────────────────
 
     /**
@@ -860,6 +992,7 @@ public class AppRegistry {
                 }
             }
             indexSkillKind(skill);
+            indexHostDecouplingFields(skill, reg);
         }
 
         indexWidgetScopedFromTools(skills, reg);
@@ -884,9 +1017,6 @@ public class AppRegistry {
                 String title = cut > 0 ? raw.substring(0, cut) : (raw.length() > 12 ? raw.substring(0, 12) : raw);
                 widgetTitleIndex.put(type.toString(), title);
             }
-
-            // Phase 5b：widget manifest 不再携带 canvas_skill / internal_tools；
-            // 这些 widget 级 tool 一律由 /api/tools 通过 indexWidgetScopedFromTools() 填充。
 
             Object rendersFor = widget.get("renders_output_of_skill");
             if (type != null && rendersFor != null) {
@@ -933,7 +1063,6 @@ public class AppRegistry {
             Object toolName = skill.get("name");
             if (toolName != null) {
                 toolIndex.put(toolName.toString(), reg);
-                // Index inject_context per skill (AIPP protocol extension)
                 Object ic = skill.get("inject_context");
                 if (ic instanceof Map<?, ?> icMap) {
                     @SuppressWarnings("unchecked")
@@ -942,8 +1071,10 @@ public class AppRegistry {
                 }
             }
             indexSkillKind(skill);
+            indexHostDecouplingFields(skill, reg);
         }
 
+        indexAppLevelDecoupling(skillsRoot, reg);
         indexWidgetScopedFromTools(skills, reg);
 
         for (Map<String, Object> widget : widgets) {
@@ -1057,6 +1188,83 @@ public class AppRegistry {
         Object kind = skill.get("kind");
         if (kind != null && !kind.toString().isBlank()) {
             skillKindIndex.put(name.toString(), kind.toString());
+        }
+    }
+
+    /**
+     * 索引 Host 解耦协议字段：
+     * {@code output_widget_rules} / {@code lifecycle} / {@code runtime_event_callback} /
+     * {@code display_label_zh}（或 {@code display_name}）。
+     */
+    @SuppressWarnings("unchecked")
+    private void indexHostDecouplingFields(Map<String, Object> skill, AppRegistration reg) {
+        Object nameObj = skill.get("name");
+        if (nameObj == null) return;
+        String name = nameObj.toString();
+
+        Object rules = skill.get("output_widget_rules");
+        if (rules instanceof Map<?, ?> rMap) {
+            skillOutputWidgetRulesIndex.put(name, (Map<String, Object>) rMap);
+            Object dw = ((Map<String, Object>) rMap).get("default_widget");
+            if (dw != null && !dw.toString().isBlank()) {
+                skillOutputWidgetIndex.putIfAbsent(name, dw.toString());
+            }
+        }
+
+        Object lc = skill.get("lifecycle");
+        if (lc != null && !lc.toString().isBlank()) {
+            skillLifecycleIndex.put(name, lc.toString());
+        }
+
+        Object cb = skill.get("runtime_event_callback");
+        if (cb instanceof Map<?, ?> cMap) {
+            Object events = ((Map<String, Object>) cMap).get("events");
+            Object path   = ((Map<String, Object>) cMap).get("path");
+            if (events instanceof List<?> evList && path != null && !path.toString().isBlank()) {
+                for (Object ev : evList) {
+                    if (ev == null || ev.toString().isBlank()) continue;
+                    runtimeEventCallbackIndex.put(ev.toString(), Map.entry(reg, path.toString()));
+                }
+            }
+        }
+
+        Object label = skill.get("display_label_zh");
+        if (label == null || label.toString().isBlank()) label = skill.get("display_name");
+        if (label != null && !label.toString().isBlank()) {
+            toolDisplayLabelIndex.put(name, label.toString());
+        }
+    }
+
+    /**
+     * 索引 app 级 {@code event_subscriptions} 与 app 级 {@code runtime_event_callback}（来自
+     * {@code /api/tools} 顶层），供事件总线和运行时回调路由。
+     */
+    @SuppressWarnings("unchecked")
+    private void indexAppLevelDecoupling(JsonNode toolsRoot, AppRegistration reg) {
+        if (toolsRoot == null) return;
+        JsonNode subs = toolsRoot.path("event_subscriptions");
+        if (subs.isArray()) {
+            Set<String> set = ConcurrentHashMap.newKeySet();
+            for (JsonNode s : subs) if (s.isTextual() && !s.asText().isBlank()) set.add(s.asText());
+            if (!set.isEmpty()) appEventSubscriptionsIndex.put(reg.appId(), set);
+        }
+        // 支持单对象或数组；数组形态 {@code runtime_event_callbacks} 允许多事件多路径。
+        indexCallbackNode(toolsRoot.path("runtime_event_callback"), reg);
+        JsonNode plural = toolsRoot.path("runtime_event_callbacks");
+        if (plural.isArray()) {
+            for (JsonNode n : plural) indexCallbackNode(n, reg);
+        }
+    }
+
+    private void indexCallbackNode(JsonNode cb, AppRegistration reg) {
+        if (cb == null || !cb.isObject()) return;
+        JsonNode events = cb.path("events");
+        String path = cb.path("path").asText("");
+        if (!events.isArray() || path.isBlank()) return;
+        for (JsonNode e : events) {
+            if (e.isTextual() && !e.asText().isBlank()) {
+                runtimeEventCallbackIndex.put(e.asText(), Map.entry(reg, path));
+            }
         }
     }
 

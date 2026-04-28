@@ -6,8 +6,14 @@ import java.util.List;
 
 public interface SessionMessageRepository extends JpaRepository<SessionMessageEntity, Long> {
 
-    /** 按时间顺序返回某 agent session 的所有消息（重建 LLM 上下文用）。 */
+    /** 按时间顺序返回某 agent session 的所有消息（仅供 deleteLastTurn / deleteRange 内部使用）。
+     *  <p>⚠️ 不要用于 LLM 上下文重建：跨 ui session 的消息会一起出来，导致主 session
+     *  被其它 ui session 的历史污染。请使用 {@link #findByAgentSessionIdAndUiSessionIdOrderByCreatedAtAsc}。 */
     List<SessionMessageEntity> findByAgentSessionIdOrderByCreatedAtAsc(String agentSessionId);
+
+    /** LLM 上下文重建专用：按 (agent_session_id, ui_session_id) 双键过滤，确保单一 ui session 隔离。 */
+    List<SessionMessageEntity> findByAgentSessionIdAndUiSessionIdOrderByCreatedAtAsc(
+            String agentSessionId, String uiSessionId);
 
     /** 按时间顺序返回某 ui session 的消息（UI 面板展示用）。 */
     List<SessionMessageEntity> findByUiSessionIdOrderByCreatedAtAsc(String uiSessionId);

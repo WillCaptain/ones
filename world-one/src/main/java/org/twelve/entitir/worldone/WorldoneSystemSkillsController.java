@@ -13,13 +13,12 @@ import java.util.Map;
  *
  * <h2>端点</h2>
  * <ul>
- *   <li>{@code POST /api/tools/app_list_view} — skill 执行，返回 html_widget JSON</li>
+ *   <li>{@code POST /api/tools/app_list_view} — skill 执行，返回应用列表 html_widget</li>
  *   <li>{@code GET  /api/system/widgets/app-list} — 完整 HTML 页面，供 #apps-panel 内的 iframe 加载</li>
  * </ul>
  *
- * <p>两个端点共用同一 HTML 模板，区别仅在于包装方式：
- * POST 路径将 HTML 包装在 {@code html_widget} JSON 内（供 GenericAgentLoop extractEvents 处理），
- * GET 路径直接返回 HTML 文本（供 iframe src 使用）。
+ * <p>POST 路径是主对话里的问答工具，返回 html_widget 由 Host 直接渲染；
+ * GET 路径是 Host 自己的 Apps 面板 widget，返回 HTML 文本（供 iframe src 使用）。
  *
  * <p>App 卡片点击通过 {@code window.parent.postMessage(\{type:'openApp', appId\}, '*')} 通知宿主，
  * 宿主收到后执行与原来 #apps-panel 点击完全一致的逻辑（{@code openAppDirect}）。
@@ -35,7 +34,7 @@ public class WorldoneSystemSkillsController {
      *
      * <p>参数：{@code args.query}（可选），按名称或描述过滤应用列表；
      * {@code args.ids} 保留用于兼容旧调用。
-     * 返回 {@code \{html_widget: \{html, height\}\}} 供 extractEvents 处理。
+     * 返回 html_widget 字段，主 session 直接渲染应用列表 widget。
      */
     @PostMapping("/api/tools/app_list_view")
     public ResponseEntity<Map<String, Object>> appListView(
@@ -45,11 +44,13 @@ public class WorldoneSystemSkillsController {
         String query = extractQuery(body);
         List<Map<String, Object>> apps = filterApps(registry.buildAppsManifests(), idSet, query);
 
-        String html   = buildHtmlPage(apps, idSet, query);
-        String height = computeHeight(apps.size());
-
         return ResponseEntity.ok(Map.of(
-            "html_widget", Map.of("html", html, "height", height, "title", "应用列表")
+            "ok", true,
+            "html_widget", Map.of(
+                "title",  "应用列表",
+                "height", computeHeight(apps.size()),
+                "html",   buildHtmlPage(apps, idSet, query)
+            )
         ));
     }
 

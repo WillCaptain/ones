@@ -25,8 +25,22 @@ public class WidgetsEndpoint {
     @GetMapping("/widgets")
     public Map<String, Object> widgets() {
         List<Map<String, Object>> all = registry.apps().stream()
-            .flatMap(a -> a.widgets().stream())
+            .flatMap(a -> a.widgets().stream().map(w -> enrich(w, a)))
             .collect(Collectors.toList());
         return Map.of("widgets", all);
+    }
+
+    /**
+     * Plan D enrichment: attach the owning AIPP's base URL so the host frontend
+     * can resolve a widget's {@code render.url} (typically a relative path like
+     * {@code /widgets/foo/foo.js}) to a full URL for {@code dynamic import}.
+     *
+     * <p>Performed at aggregation time so each AIPP doesn't need to know its
+     * own external address — host already knows it from /api/registry/install.
+     */
+    private static Map<String, Object> enrich(Map<String, Object> widget, AppRegistration app) {
+        Map<String, Object> out = new java.util.LinkedHashMap<>(widget);
+        out.put("app_base_url", app.baseUrl());
+        return out;
     }
 }
