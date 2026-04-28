@@ -13,9 +13,6 @@
   --accent-glow: rgba(124,111,247,0.18); --danger: #ff4f6a; --success: #4fbf8f;
   --active: rgba(124,111,247,0.14); --radius: 8px;
   --funcbar-w: 48px; --panel-w: 220px; --chat-panel-w: 340px;
-  --ontology-list-width: 220px;
-  --decision-list-width: 220px;
-
   /* ── AIPP 标准 widget 主题变量（--aipp-* 命名空间） ──
      host 默认将自身主题映射到这些变量，外部 widget 嵌入时直接读取即可 */
   --aipp-bg:        var(--bg);
@@ -35,16 +32,6 @@ body {
   height: 100vh; overflow: hidden; display: flex; flex-direction: column;
 }
 
-/* Action editor: full-width generated function signature above body */
-.ae-fn-header-row { margin-bottom: 8px; min-width: 0; }
-.ae-fn-header {
-  display: block; width: 100%; box-sizing: border-box;
-  font-size: 12px; line-height: 1.45; color: #9a90ff;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  background: var(--surface3); border: 1px solid var(--border);
-  border-radius: 6px; padding: 8px 10px;
-  white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
-}
 
 /* ── Topbar ── */
 .topbar {
@@ -214,33 +201,6 @@ body.canvas-mode .topbar-btn.exit-canvas { display: flex; }
 .sess-act.bad:hover  { color: var(--danger); }
 .sess-act.dim:hover  { color: var(--text-dim); }
 
-.session-badge {
-  font-size: 9px; padding: 1px 5px; border-radius: 10px; flex-shrink: 0;
-}
-.session-badge.completed { background: var(--surface3); color: var(--text-muted); }
-.session-badge.voided    { background: rgba(255,79,106,.08); color: var(--text-muted); }
-.session-badge.active    { background: rgba(79,191,143,.12); color: var(--success); }
-.session-badge.internal  { background: rgba(124,111,247,.14); color: #b9a8ff; }
-.session-badge.ready     { background: rgba(78,154,241,.12); color: #8ec5ff; }
-.session-badge.executing { background: rgba(45,212,191,.12); color: #5eead4; }
-.session-badge.pending   { background: rgba(251,191,36,.14); color: #fbbf24; }
-.session-badge.done      { background: rgba(79,191,143,.12); color: var(--success); }
-.session-badge.failed    { background: rgba(255,79,106,.12); color: var(--danger); }
-.session-badge.rejected  { background: rgba(255,79,106,.12); color: #ff9fb4; }
-.runtime-widget-sub {
-  color: var(--text-dim); font-size: 12px; margin-top: 4px; line-height: 1.5;
-}
-.runtime-widget-json {
-  width: 100%; min-height: 92px; resize: vertical; border-radius: 8px;
-  border: 1px solid var(--border); background: var(--surface3); color: var(--text);
-  padding: 10px; font: 12px/1.45 'JetBrains Mono','Fira Code',monospace;
-  box-sizing: border-box; margin-top: 8px;
-}
-.runtime-widget-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-.runtime-widget-pill {
-  font-size: 11px; padding: 2px 8px; border-radius: 999px;
-  background: var(--surface3); color: var(--text-dim); border: 1px solid var(--border);
-}
 
 .panel-footer {
   padding: 6px 8px; border-top: 1px solid var(--border); flex-shrink: 0;
@@ -281,1009 +241,6 @@ body.canvas-mode .chat-main { display: none; }
 .canvas-area { flex: 1; background: var(--bg); display: none; overflow: hidden; position: relative; }
 body.canvas-mode .canvas-area { display: flex; align-items: stretch; }
 
-/* ── World Designer Tab Bar ── */
-.designer-tabs {
-  display: none; position: absolute; top: 0; left: 0; right: 0; z-index: 10;
-  height: 36px; background: var(--surface); border-bottom: 1px solid var(--border);
-  display: none; align-items: center; padding: 0 10px; gap: 2px;
-  overflow: visible;
-}
-body.canvas-mode .designer-tabs { display: flex; }
-.designer-tab {
-  display: flex; align-items: center; gap: 5px; padding: 5px 12px;
-  border: none; background: none; color: var(--text-dim); font-size: 12px;
-  cursor: pointer; border-radius: 6px; transition: background .12s, color .12s;
-}
-.designer-tab:hover { background: var(--surface2); color: var(--text); }
-.designer-tab.active { background: var(--active); color: var(--accent); font-weight: 600; }
-
-/* ── Pipeline strip (right side of tab bar) ─────────────────────────── */
-.pipeline-strip {
-  display: none;
-  margin-left: auto; align-items: center; gap: 6px;
-  font-size: 11px; color: var(--text-dim); user-select: none;
-}
-body.canvas-mode .pipeline-strip { display: flex; }
-
-/* Draft version label — only visible when dirty */
-.pl-draft-ver {
-  font-size: 10px; color: var(--text-dim); opacity: .7; letter-spacing: .02em;
-  padding: 0 2px;
-}
-
-/* Env pill (Staging / Production) */
-.pl-env {
-  display: flex; align-items: center; gap: 5px;
-  padding: 3px 10px 3px 7px; border-radius: 14px;
-  background: var(--surface2); border: 1px solid var(--border);
-  white-space: nowrap; color: var(--text-dim);
-  transition: border-color .2s, box-shadow .2s, color .2s;
-  position: relative;
-}
-/* Actionable: orange glow = can build/promote */
-.pl-env.actionable {
-  border-color: #f59e0b; color: var(--text); cursor: pointer;
-  box-shadow: 0 0 0 2px rgba(245,158,11,.15);
-}
-.pl-env.actionable:hover  { box-shadow: 0 0 0 3px rgba(245,158,11,.25); }
-.pl-env.actionable:active { transform: scale(.97); }
-/* Promote-ready: green glow */
-.pl-env.promotable {
-  border-color: #10b981; color: var(--text); cursor: pointer;
-  box-shadow: 0 0 0 2px rgba(16,185,129,.15);
-}
-.pl-env.promotable:hover  { box-shadow: 0 0 0 3px rgba(16,185,129,.25); }
-.pl-env.promotable:active { transform: scale(.97); }
-
-/* Custom multiline tooltip for pipeline pills */
-.pl-env[data-tip]:hover::after {
-  content: attr(data-tip);
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  z-index: 50;
-  min-width: 160px;
-  max-width: 320px;
-  padding: 7px 9px;
-  border-radius: 8px;
-  border: 1px solid #374151;
-  background: #111827;
-  color: #f9fafb;
-  font-size: 11px;
-  line-height: 1.35;
-  white-space: pre-line;
-  text-align: left;
-  box-shadow: 0 8px 20px rgba(0,0,0,.35);
-  pointer-events: none;
-}
-.pl-env[data-tip]:hover::before {
-  content: '';
-  position: absolute;
-  right: 14px;
-  bottom: calc(100% + 2px);
-  width: 9px;
-  height: 9px;
-  background: #111827;
-  border-right: 1px solid #374151;
-  border-bottom: 1px solid #374151;
-  transform: rotate(45deg);
-  z-index: 49;
-  pointer-events: none;
-}
-
-/* Status dot */
-.pl-dot {
-  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-  transition: background .3s;
-}
-.pl-dot.grey   { background: #6b7280; }
-.pl-dot.green  { background: #10b981; box-shadow: 0 0 4px rgba(16,185,129,.6); }
-.pl-dot.yellow { background: #f59e0b; box-shadow: 0 0 4px rgba(245,158,11,.7); }
-.pl-dot.red    { background: #dc2626; box-shadow: 0 0 4px rgba(220,38,38,.65); }
-
-/* Arrow between stages */
-.pl-arrow { font-size: 11px; color: var(--border); transition: color .2s; }
-.pl-arrow.active { color: #10b981; }
-
-/* Staging clickable but up-to-date (already synced with draft) */
-.pl-env.actionable.synced {
-  border-color: var(--border); box-shadow: none; opacity: .75;
-  cursor: pointer;
-}
-.pl-env.actionable.synced:hover { opacity: 1; border-color: #f59e0b40; }
-
-/* Error/warning banner below the strip */
-.pl-error-msg {
-  position: fixed; top: 10px; right: 10px; z-index: 9999;
-  font-size: 11px; line-height: 1.35; padding: 6px 10px; border-radius: 8px;
-  max-width: 520px; max-height: 160px; overflow: auto;
-  white-space: pre-line; word-break: break-word;
-  pointer-events: none;
-}
-.pl-error-msg.error   { background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5; }
-.pl-error-msg.warning { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
-
-/* Spinner for in-progress state */
-@keyframes pl-spin { to { transform: rotate(360deg); } }
-.pl-spinner {
-  width: 7px; height: 7px; border: 1.5px solid transparent;
-  border-top-color: currentColor; border-radius: 50%;
-  animation: pl-spin .6s linear infinite; flex-shrink: 0;
-}
-
-/* ontology-graph-view: flex column so toolbar + scroll stack cleanly */
-#ontology-graph-view { display: flex; flex-direction: column; }
-body.canvas-mode .designer-tab-content.active { top: 36px; bottom: 0; left: 0; right: 0; position: absolute; }
-
-/* ── Designer list panel (Decisions / Actions) ── */
-.designer-tab-content { position: absolute; top: 0; bottom: 0; left: 0; right: 0; overflow: hidden; }
-body.canvas-mode .designer-tab-content { top: 36px; }
-/* Ontology tab: internal split layout */
-#designer-tab-ontology { overflow: hidden; }
-.ontology-split {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  grid-template-columns: var(--ontology-list-width, 220px) 6px 1fr;
-  min-width: 0;
-}
-.split-resizer {
-  cursor: col-resize;
-  background: var(--border);
-  opacity: .62;
-  transition: background .12s, opacity .12s;
-}
-.split-resizer:hover,
-.split-resizer.dragging {
-  background: var(--accent);
-  opacity: .95;
-}
-.ontology-main {
-  position: relative;
-  min-width: 0;
-  overflow: hidden;
-}
-.ontology-graph-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  position: relative;
-}
-.ontology-graph-scroll svg { display: block; }
-.designer-list-header {
-  padding: 10px 14px 8px; border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between;
-  font-size: 12px; color: var(--text-dim); font-weight: 600; background: var(--surface);
-}
-.designer-add-btn {
-  border: 1px solid var(--border); background: var(--surface2); color: var(--accent);
-  font-size: 11px; padding: 3px 9px; border-radius: 5px; cursor: pointer;
-  transition: background .12s;
-}
-.designer-add-btn:hover { background: var(--active); }
-.act-th { color: var(--text-muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
-.act-th:hover { color: var(--text); background: var(--surface2); }
-.act-th.sort-asc, .act-th.sort-desc { color: var(--accent); }
-#actions-table tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; transition: background .1s; }
-#actions-table tbody tr:hover { background: var(--surface2); }
-#actions-table td { padding: 7px 10px; vertical-align: middle; }
-.actions-entity-row {
-  background: rgba(124,111,247,.08);
-  cursor: pointer;
-}
-.actions-entity-row:hover { background: rgba(124,111,247,.14) !important; }
-.actions-entity-caret {
-  display: inline-block;
-  width: 14px;
-  color: var(--accent);
-  font-size: 11px;
-}
-.actions-child-row td:first-child { padding-left: 28px !important; }
-.action-decision-chip:hover { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
-.designer-list { overflow-y: auto; height: calc(100% - 41px); padding: 8px 0; }
-.designer-item {
-  padding: 9px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
-  transition: background .12s;
-}
-.designer-item:hover { background: var(--surface2); }
-.designer-item.active { background: rgba(124,111,247,.14); border-left: 2px solid var(--accent); padding-left: 12px; }
-.designer-item-title { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
-.designer-item-sub { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.designer-item-meta { font-size: 10px; color: var(--text-muted); margin-top: 3px; display: flex; gap: 8px; }
-.designer-item-tag {
-  display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px;
-  background: var(--surface3); color: var(--text-dim);
-}
-.designer-item-tag.outline { background: rgba(80,180,255,.12); color: #50b4ff; }
-.designer-item-tag.webhook { background: rgba(240,180,60,.12); color: #f0b43c; }
-.decision-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.decision-edit-btn {
-  border: 1px solid var(--border);
-  background: var(--surface2);
-  color: #dfdbee;
-  border-radius: 5px;
-  font-size: 10px;
-  line-height: 1;
-  padding: 3px 7px;
-  cursor: pointer;
-}
-.decision-edit-btn:hover { color: var(--text); border-color: var(--accent); }
-.decisions-split {
-  height: calc(100% - 41px);
-  display: grid;
-  grid-template-columns: var(--decision-list-width, 220px) 6px 1fr;
-}
-.decisions-left {
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
-}
-.decisions-right {
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  background: linear-gradient(to bottom, rgba(255,255,255,.01), rgba(255,255,255,0));
-}
-.decision-graph-toolbar {
-  position: sticky;
-  top: 10px;
-  left: 10px;
-  z-index: 6;
-  display: inline-flex;
-  gap: 5px;
-  pointer-events: none;
-  margin: 10px;
-  width: fit-content;
-}
-.decision-graph-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  position: relative;
-}
-.decision-graph-empty {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-dim);
-  font-size: 12px;
-}
-.decision-graph {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-.decision-edge {
-  stroke: var(--border2);
-  stroke-width: 1.2;
-  fill: none;
-  marker-end: url(#decision-edge-arrow);
-}
-.decision-edge.active { stroke: var(--accent); stroke-width: 1.7; }
-.decision-node { cursor: pointer; }
-.decision-node-rect {
-  fill: #1c1f2e;
-  stroke: #343850;
-  stroke-width: 1.5;
-  rx: 8;
-}
-.decision-node.active .decision-node-rect {
-  stroke: #7c6ff7;
-  stroke-width: 2.2;
-  /* 必须用不透明色，否则下层 edge 会透过来，看起来像线浮到 shape 上 */
-  fill: #26223d;
-}
-.decision-node-title {
-  fill: #9a90ff;
-  font-size: 11px;
-  font-weight: 700;
-  pointer-events: none;
-}
-.decision-node-kv {
-  fill: #8b9fc0;
-  font-size: 10px;
-  pointer-events: none;
-}
-
-/* ── Decision editor (compact, inline rows) ── */
-.de-body { padding: 10px 14px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; }
-.de-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.de-row-multi {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-.de-row-label {
-  flex-shrink: 0;
-  width: 70px;
-  font-size: 11px;
-  color: var(--text-dim);
-  padding-top: 7px;
-}
-.de-row-ctrl { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
-.de-field {
-  box-sizing: border-box;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 6px 9px;
-  color: var(--text);
-  font-size: 12.5px;
-  outline: none;
-}
-.de-field:focus { border-color: var(--accent); }
-.de-field.de-short { flex: 0 1 240px; min-width: 0; }
-.de-field.de-grow { flex: 1; min-width: 0; }
-textarea.de-field {
-  resize: vertical;
-  min-height: 44px;
-  font-family: inherit;
-  line-height: 1.5;
-}
-.de-select { appearance: none; padding-right: 24px; background-image: linear-gradient(45deg, transparent 50%, var(--text-dim) 50%), linear-gradient(135deg, var(--text-dim) 50%, transparent 50%); background-position: right 10px top 14px, right 6px top 14px; background-size: 4px 4px; background-repeat: no-repeat; }
-.de-checkbox-lbl {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--text-dim);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.de-section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 4px;
-}
-.de-section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 0 2px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-}
-.de-section-title {
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: .5px;
-}
-.de-section-add {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 11px;
-  padding: 2px 8px;
-}
-.de-section-add:hover { background: var(--surface3); }
-.de-section-body { display: flex; flex-direction: column; gap: 4px; }
-.de-save-status {
-  font-size: 11px;
-  color: var(--text-muted);
-  min-width: 56px;
-  text-align: right;
-  transition: color .2s;
-}
-.de-save-status.ok { color: var(--success, #2ecc71); }
-.de-save-status.err { color: var(--danger, #ff4f6a); }
-.de-save-status.busy { color: var(--text-dim); }
-/* compact sub-row blocks (triggers/actionDefs/rules) */
-.de-subrow {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-}
-.de-subrow-top { display: flex; gap: 6px; align-items: center; }
-.de-del-btn {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  padding: 0 4px;
-  flex-shrink: 0;
-}
-.de-del-btn:hover { color: var(--danger, #ff4f6a); }
-
-/* Help tooltip (?) next to labels */
-.de-help {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 13px; height: 13px;
-  font-size: 9px; font-weight: 600;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  margin-left: 5px;
-  cursor: help;
-  position: relative;
-  background: transparent;
-}
-.de-help:hover { color: var(--text); border-color: var(--accent); }
-.de-help::after {
-  content: attr(data-tip);
-  position: absolute;
-  top: calc(100% + 6px); left: 0;
-  background: var(--surface3, #1f2333);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 7px 10px;
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--text);
-  width: 240px;
-  line-height: 1.5;
-  letter-spacing: 0;
-  text-transform: none;
-  z-index: 400;
-  box-shadow: 0 6px 16px rgba(0,0,0,.35);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-4px);
-  transition: opacity .12s, transform .12s;
-  white-space: normal;
-}
-.de-help:hover::after { opacity: 1; transform: translateY(0); }
-
-/* Collapsible Advanced section (for Rules) */
-.de-advanced-toggle {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 11px;
-  padding: 6px 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  text-transform: uppercase;
-  letter-spacing: .5px;
-  font-weight: 600;
-  border-top: 1px solid var(--border);
-  margin-top: 4px;
-}
-.de-advanced-toggle:hover { color: var(--text); }
-.de-advanced-toggle .de-caret { transition: transform .15s; display: inline-block; font-size: 9px; }
-.de-advanced-toggle.open .de-caret { transform: rotate(90deg); }
-.de-advanced-body { display: none; flex-direction: column; gap: 8px; padding-top: 4px; }
-.de-advanced-body.open { display: flex; }
-
-/* ── Chip picker (tag-style multi-select, used by decision activator) ── */
-.de-chip-picker {
-  background: var(--surface3);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  align-items: center;
-  min-height: 32px;
-}
-.de-chip-list { display: contents; }
-.de-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: rgba(124,111,247,.16);
-  border: 1px solid rgba(124,111,247,.35);
-  color: var(--accent);
-  padding: 2px 6px 2px 8px;
-  font-size: 12px;
-  border-radius: 12px;
-  max-width: 100%;
-}
-.de-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.de-chip-remove {
-  background: none;
-  border: none;
-  color: inherit;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
-  opacity: .7;
-}
-.de-chip-remove:hover { opacity: 1; }
-.de-chip-add-wrap { position: relative; display: inline-flex; }
-.de-chip-add-btn {
-  background: none;
-  border: 1px dashed var(--border2);
-  color: var(--text-dim);
-  border-radius: 12px;
-  padding: 2px 10px;
-  font-size: 11px;
-  cursor: pointer;
-}
-.de-chip-add-btn:hover { color: var(--text); border-color: var(--accent); }
-.de-chip-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 220px;
-  max-width: 320px;
-  background: var(--surface2);
-  border: 1px solid var(--border2);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.45);
-  z-index: 30;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.de-chip-menu-search {
-  background: var(--surface3);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 5px 8px;
-  font-size: 12px;
-  color: var(--text);
-  outline: none;
-}
-.de-chip-menu-list { max-height: 220px; overflow-y: auto; }
-.de-chip-menu-item {
-  padding: 6px 8px;
-  font-size: 12px;
-  color: var(--text);
-  cursor: pointer;
-  border-radius: 4px;
-}
-.de-chip-menu-item:hover { background: var(--surface3); }
-.de-chip-menu-empty {
-  padding: 8px;
-  font-size: 11px;
-  color: var(--text-muted);
-  text-align: center;
-}
-
-/* ── Graph Outline Panel (left) ── */
-.graph-outline {
-  width: 100%; min-width: 0; background: var(--surface); border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden;
-}
-.graph-outline-header {
-  padding: 9px 12px 7px; border-bottom: 1px solid var(--border); flex-shrink: 0;
-  font-size: 10px; font-weight: 600; color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: .7px;
-}
-.outline-list { flex: 1; overflow-y: auto; padding-bottom: 8px; }
-.outline-section-label {
-  padding: 8px 12px 2px; font-size: 10px; color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: .6px; user-select: none;
-  display: flex; align-items: center; justify-content: space-between; gap: 6px;
-}
-.outline-section-add {
-  background: none; border: 1px solid var(--border); color: var(--text-dim);
-  width: 18px; height: 18px; border-radius: 4px; cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 13px; line-height: 1; padding: 0;
-  transition: background .12s, color .12s, border-color .12s;
-}
-.outline-section-add:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
-.outline-item {
-  padding: 5px 10px; cursor: pointer; font-size: 12px; color: var(--text-dim);
-  display: flex; align-items: center; gap: 6px;
-  transition: background .12s; white-space: nowrap; overflow: hidden;
-}
-.outline-item:hover { background: var(--surface2); color: var(--text); }
-.outline-item.active { background: var(--active); color: var(--accent); }
-.outline-item-del {
-  margin-left: auto; flex-shrink: 0;
-  background: none; border: none; color: var(--text-muted);
-  width: 18px; height: 18px; border-radius: 3px; cursor: pointer;
-  display: none; align-items: center; justify-content: center;
-  font-size: 13px; line-height: 1; padding: 0;
-}
-.outline-item:hover .outline-item-del { display: inline-flex; }
-.outline-item-del:hover { background: rgba(239,68,68,.2); color: #ef4444; }
-.oi-badge {
-  font-size: 9px; padding: 1px 4px; border-radius: 3px; flex-shrink: 0;
-  font-weight: 700; letter-spacing: .2px;
-}
-.oi-badge.entity { background: rgba(124,111,247,.2); color: var(--accent); }
-.oi-badge.enum   { background: rgba(240,160,80,.15);  color: #f0a050; }
-
-/* ── Graph Scroll Container ── */
-.graph-scroll { flex: 1; overflow: auto; position: relative; min-width: 0; }
-.graph-scroll svg { display: block; }
-
-/* ── Ontology graph toolbar (mirrors .decision-graph-toolbar) ── */
-.graph-toolbar-ov {
-  position: sticky;
-  top: 10px;
-  left: 10px;
-  z-index: 6;
-  display: inline-flex;
-  gap: 5px;
-  pointer-events: none;
-  margin: 10px;
-  width: fit-content;
-  flex-shrink: 0;
-}
-.graph-tool-btn {
-  pointer-events: all; display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 10px; font-size: 11px; background: var(--surface2);
-  border: 1px solid var(--border2); border-radius: 6px; color: var(--text-dim);
-  cursor: pointer; transition: background .15s, color .15s;
-}
-.graph-tool-btn:hover { background: var(--surface3); color: var(--text); }
-.graph-tool-btn.active { background: var(--surface3); color: var(--text); border-color: var(--border2); }
-
-/* ── Ontology view toggle (Graph | Schema) ── */
-.ontology-view-tabs {
-  display: flex; gap: 0; border-radius: 7px; overflow: hidden;
-  border: 1px solid var(--border2); margin-left: 6px;
-  pointer-events: all;
-}
-.ovt-btn {
-  padding: 3px 12px; font-size: 11px; background: var(--surface2);
-  border: none; color: var(--text-dim); cursor: pointer;
-  transition: background .15s, color .15s;
-}
-.ovt-btn + .ovt-btn { border-left: 1px solid var(--border2); }
-.ovt-btn.active { background: var(--accent); color: #fff; }
-.ovt-btn:not(.active):hover { background: var(--surface3); color: var(--text); }
-
-/* Schema editor container */
-#ontology-schema-view {
-  position: absolute; top: 0; bottom: 0; left: 0; right: 0;
-  display: flex; flex-direction: column;
-}
-.schema-editor-bar {
-  height: 36px; min-height: 36px; display: flex; align-items: center;
-  padding: 0 10px; gap: 8px; border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-.schema-editor-bar .schema-status {
-  flex: 1; font-size: 11px; color: var(--text-muted);
-}
-.schema-save-btn {
-  padding: 4px 14px; font-size: 11px; border-radius: 6px;
-  background: var(--accent); color: #fff; border: none; cursor: pointer;
-  transition: background .15s;
-}
-.schema-save-btn:hover { background: var(--accent-h); }
-.schema-save-btn:disabled { opacity: .4; cursor: default; }
-#schema-code-editor { flex: 1; min-height: 0; }
-
-/* ── Node Detail Panel (right of graph) ── */
-.node-detail {
-  width: 325px; background: var(--surface); border-left: 1px solid var(--border);
-  flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden;
-  transition: width .18s ease;
-}
-.node-detail.hidden { width: 0; border-left: none; overflow: hidden; }
-.nd-header {
-  padding: 12px 12px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0;
-  display: flex; align-items: flex-start; justify-content: space-between;
-}
-.nd-title { font-size: 13px; font-weight: 700; color: var(--text); word-break: break-all; }
-.nd-type-badge {
-  font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px;
-  flex-shrink: 0; margin-top: 2px;
-}
-.nd-type-badge.entity { background: rgba(124,111,247,.2); color: var(--accent); }
-.nd-type-badge.enum   { background: rgba(240,160,80,.15);  color: #f0a050; }
-.nd-close {
-  width: 20px; height: 20px; border: none; background: none; border-radius: 4px;
-  color: var(--text-muted); cursor: pointer; display: flex; align-items: center;
-  justify-content: center; flex-shrink: 0; transition: background .12s;
-}
-.nd-close:hover { background: var(--surface2); color: var(--text); }
-.nd-body { flex: 1; overflow-y: auto; padding: 10px 12px; }
-.nd-sec { font-size: 10px; color: var(--text-dim); text-transform: uppercase;
-  letter-spacing: .6px; margin: 12px 0 5px; }
-.nd-sec:first-child { margin-top: 0; }
-.nd-field {
-  display: flex; align-items: baseline; gap: 4px; padding: 4px 0;
-  border-bottom: 1px solid var(--border); font-size: 12px;
-}
-.nd-field:last-child { border-bottom: none; }
-.nd-row-icon {
-  width: 16px;
-  height: 16px;
-  border-radius: 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  font-size: 10px;
-  line-height: 1;
-  font-weight: 700;
-  border: 1px solid var(--border);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 1px 2px rgba(0,0,0,.12);
-}
-.nd-row-icon.field { color: #7dd3fc; background: rgba(56,189,248,.12); }
-.nd-row-icon.edge  { color: #c084fc; background: rgba(168,85,247,.13); }
-.nd-row-icon.action{ color: #facc15; background: rgba(250,204,21,.14); }
-.nd-fname { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.nd-ftype { color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
-.nd-val {
-  display: inline-block; padding: 2px 7px; background: var(--surface2);
-  border-radius: 4px; font-size: 11px; color: var(--text-dim); margin: 2px 2px 2px 0;
-}
-.nd-action { padding: 3px 0; font-size: 12px; color: var(--success); }
-/* Property panel: registered actions — full-width name, row opens editor */
-.nd-act-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 0;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  border-radius: 4px;
-  margin: 0 -4px;
-  padding-left: 4px;
-  padding-right: 4px;
-}
-.nd-act-row:last-child { border-bottom: none; }
-.nd-act-row:hover { background: var(--surface2); }
-.nd-act-name {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.nd-act-del {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-  padding: 2px 6px;
-  transition: background .12s, color .12s;
-}
-.nd-act-del:hover { background: rgba(255,79,106,.12); color: var(--danger); }
-/* Custom tooltip (property panel → Actions): stable multi-line, not browser title */
-#nd-action-tooltip.nd-action-tooltip {
-  position: fixed;
-  z-index: 10050;
-  display: none;
-  max-width: min(380px, calc(100vw - 20px));
-  padding: 8px 11px;
-  background:
-    linear-gradient(180deg, rgba(124,111,247,.08), rgba(124,111,247,.035)),
-    var(--surface2);
-  border: 1px solid rgba(124,111,247,.35);
-  border-radius: 10px;
-  box-shadow:
-    0 18px 42px rgba(0, 0, 0, 0.34),
-    0 4px 14px rgba(124,111,247,.16),
-    inset 0 1px 0 rgba(255,255,255,.06);
-  font-size: 12px;
-  line-height: 1.28;
-  color: #dfdbee;
-  pointer-events: none;
-  white-space: pre-wrap;
-  word-break: break-word;
-  transform: translateY(3px) scale(.985);
-  opacity: 0;
-  transition: opacity .12s ease, transform .12s ease;
-}
-#nd-action-tooltip.nd-action-tooltip.visible {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-}
-#nd-action-tooltip.nd-action-tooltip::before {
-  content: "";
-  position: absolute;
-  width: 9px;
-  height: 9px;
-  background: linear-gradient(135deg, rgba(124,111,247,.08), rgba(124,111,247,.035)), var(--surface2);
-  border-left: 1px solid rgba(124,111,247,.35);
-  border-top: 1px solid rgba(124,111,247,.35);
-  transform: rotate(45deg);
-  left: var(--nd-tip-arrow-x, 18px);
-}
-#nd-action-tooltip.nd-action-tooltip[data-placement="bottom"]::before {
-  top: -5px;
-}
-#nd-action-tooltip.nd-action-tooltip[data-placement="top"]::before {
-  bottom: -5px;
-  transform: rotate(225deg);
-}
-.nd-phase { font-size: 12px; padding: 3px 0; }
-.nd-footer { padding: 8px 12px 12px; border-top: 1px solid var(--border); flex-shrink: 0; }
-.nd-ask-btn {
-  width: 100%; padding: 6px 10px; background: var(--active);
-  border: 1px solid rgba(124,111,247,.25); border-radius: var(--radius);
-  color: var(--accent); font-size: 12px; cursor: pointer;
-  display: flex; align-items: center; gap: 5px; justify-content: center; transition: all .15s;
-}
-.nd-ask-btn:hover { background: rgba(124,111,247,.22); border-color: var(--accent); }
-
-.de-executor-section {
-  background: linear-gradient(180deg, rgba(124,111,247,.06), rgba(124,111,247,.02));
-  border: 1px solid rgba(124,111,247,.22);
-  border-radius: 8px;
-  padding: 8px;
-  margin-top: 8px;
-}
-.de-exec-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 7px;
-}
-.de-exec-grid label {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-.de-exec-grid span {
-  color: var(--text-muted);
-  font-size: 10px;
-}
-.de-exec-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-#de-exec-fn-header {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #9a90ff;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2px 7px;
-  font-family: 'JetBrains Mono','Fira Code',monospace;
-  font-size: 11px;
-}
-.de-exec-status {
-  flex-shrink: 0;
-  font-size: 10px;
-  color: var(--text-muted);
-  max-width: 190px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.de-exec-status.ok { color: var(--success); }
-.de-exec-status.err { color: var(--danger); }
-.de-exec-status.busy { color: var(--accent); }
-.de-exec-code {
-  min-height: 150px;
-  height: 180px;
-  resize: vertical;
-  font-family: 'JetBrains Mono','Fira Code',monospace;
-  font-size: 12px;
-  line-height: 1.42;
-  white-space: pre;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-.ae-params-section {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
-}
-.ae-params-list {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.ae-param-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 6px;
-  align-items: center;
-}
-.ae-param-row input {
-  width: 100%;
-  box-sizing: border-box;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 5px 7px;
-  color: var(--text);
-  font-size: 12px;
-}
-.ae-param-add {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 11px;
-  padding: 3px 8px;
-}
-.ae-param-add:hover { background: var(--surface3); }
-.ae-param-del {
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 16px;
-  padding: 1px 6px;
-}
-.ae-param-del:hover { color: var(--danger); background: rgba(255,79,106,.1); }
-
-/* ── Node field inline editor ── */
-.nd-edit-row {
-  display: flex; align-items: center; gap: 4px; padding: 3px 0;
-  border-bottom: 1px solid var(--border);
-}
-.nd-edit-row:last-of-type { border-bottom: none; }
-.nd-edit-name {
-  flex: 1; min-width: 0; background: var(--surface2); border: 1px solid transparent;
-  border-radius: 4px; padding: 3px 6px; font-size: 12px; color: var(--text);
-  outline: none; transition: border-color .12s;
-}
-.nd-edit-name:focus { border-color: var(--accent); }
-.nd-edit-type {
-  width: 76px; background: var(--surface2); border: 1px solid transparent;
-  border-radius: 4px; padding: 3px 4px; font-size: 11px; color: var(--text-dim);
-  outline: none; cursor: pointer; transition: border-color .12s; flex-shrink: 0;
-}
-.nd-edit-type:focus { border-color: var(--accent); color: var(--text); }
-.nd-edit-nullable {
-  width: 20px; height: 20px; border: 1px solid var(--border); background: var(--surface2);
-  border-radius: 4px; cursor: pointer; display: flex; align-items: center;
-  justify-content: center; flex-shrink: 0; font-size: 11px; font-weight: 700;
-  line-height: 1; transition: background .12s, color .12s, border-color .12s;
-  color: var(--text-muted); font-family: monospace;
-}
-.nd-edit-nullable:hover { border-color: var(--accent); }
-.nd-edit-nullable.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-.nd-edit-del {
-  width: 20px; height: 20px; border: none; background: none; border-radius: 4px;
-  color: var(--text-muted); cursor: pointer; display: flex; align-items: center;
-  justify-content: center; flex-shrink: 0; font-size: 14px; line-height: 1;
-  transition: background .12s, color .12s;
-}
-.nd-edit-del:hover { background: rgba(255,79,106,.12); color: var(--danger); }
-.nd-add-field {
-  display: flex; align-items: center; gap: 4px; padding: 5px 0 2px;
-  font-size: 11px; color: var(--text-dim); cursor: pointer; border: none;
-  background: none; transition: color .12s;
-}
-.nd-add-field:hover { color: var(--accent); }
-.nd-save-row {
-  display: flex; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); margin-top: 6px;
-}
-.nd-save-btn {
-  flex: 1; padding: 5px 8px; background: var(--accent); border: none;
-  border-radius: var(--radius); color: #fff; font-size: 12px; cursor: pointer;
-  display: flex; align-items: center; gap: 4px; justify-content: center; transition: opacity .15s;
-}
-.nd-save-btn:hover { opacity: .88; }
-.nd-save-btn:disabled { opacity: .45; cursor: not-allowed; }
-.nd-save-status { font-size: 11px; padding: 5px 0; color: var(--text-dim); text-align: center; }
-
 .chat-side {
   width: var(--chat-panel-w); background: var(--surface); border-left: 1px solid var(--border);
   display: none; flex-direction: column; flex-shrink: 0;
@@ -1301,11 +258,12 @@ body.canvas-mode .chat-side { display: flex; }
 
 /* ── Memory Manager Panel ── */
 /* Plan D: 通用 AIPP canvas 挂载模式 — 隐藏所有 legacy 面板。
-   .memory-panel / mem-* CSS 已被移除（memory-manager 迁移到 memory-one AIPP）。 */
+   legacy app-specific canvas CSS has been removed; AIPP-owned widgets ship
+   their own UI modules. */
 #aipp-canvas-mount { display: none; }
-body.aipp-canvas-mode #aipp-canvas-mount { display: block; }
+body.aipp-canvas-mode #aipp-canvas-mount { display: flex; flex: 1; min-width: 0; min-height: 0; align-self: stretch; }
 
-/* memory-manager (.mem-*) styles removed: migrated to memory-one AIPP. */
+/* App-specific widget styles are owned by their AIPP modules. */
 .mem-type-bar {
   display: none;
 }
@@ -1379,20 +337,6 @@ body.aipp-canvas-mode #aipp-canvas-mount { display: block; }
 }
 .readonly-delete-btn:hover { background: rgba(255,79,106,.1); }
 
-/* ── body.session-readonly: disable all widget interactions ── */
-/* Entity graph: block canvas dragging/clicks */
-body.session-readonly .graph-scroll { pointer-events: none; }
-/* Graph toolbar: all buttons are view-only (zoom/layout), keep them usable */
-/* Node detail: disable ask-AI / edit actions */
-body.session-readonly .nd-ask-btn,
-body.session-readonly .nd-footer { pointer-events: none; opacity: .4; }
-/* Memory manager: block card actions, create buttons */
-body.session-readonly .mem-card-actions,
-body.session-readonly .mem-create-btn { pointer-events: none; opacity: .4; }
-/* data-aipp-disabled: widget-level disable marker (used by external widget embeddings) */
-[data-aipp-disabled="true"] .mem-card-actions,
-[data-aipp-disabled="true"] .mem-create-btn { pointer-events: none; opacity: .4; }
-[data-aipp-disabled="true"].graph-scroll { pointer-events: none; }
 .btn-action {
   border: none; border-radius: var(--radius); width: 40px; height: 40px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all .15s;
@@ -2000,8 +944,8 @@ window.addEventListener('DOMContentLoaded', () => {
   <!-- RIGHT CHAT PANEL (canvas mode only) -->
   <div class="chat-side" id="chat-side">
     <div class="side-header">
-      <div class="side-title" id="side-title" ondblclick="beginRenameWorldTitle(event)" title="双击重命名当前世界">World One</div>
-      <div class="side-sub" id="side-sub" data-i18n="canvas.sub">实体关系图模式</div>
+      <div class="side-title" id="side-title" ondblclick="beginRenameWorldTitle(event)" title="双击重命名当前 canvas session">World One</div>
+      <div class="side-sub" id="side-sub" data-i18n="canvas.sub">Canvas mode</div>
     </div>
     <div class="messages" id="panel-messages"></div>
     <div class="readonly-notice" id="panel-readonly-notice" style="display:none">📖 只读模式 — 此会话已结束，无法继续发送消息</div>
@@ -2037,7 +981,7 @@ const TRANSLATIONS = {
     'panel.viewHistory':      '📂 查看历史',
     'panel.hideHistory':      '📂 隐藏历史',
     'panel.history':          '历史',
-    'canvas.sub':             '实体关系图模式',
+    'canvas.sub':             'Canvas 模式',
     'session.type.conversation': '对话',
     'session.type.task':      '任务',
     'session.type.event':     '事件',
@@ -2177,7 +1121,7 @@ const TRANSLATIONS = {
     'panel.viewHistory':      '📂 Show History',
     'panel.hideHistory':      '📂 Hide History',
     'panel.history':          'History',
-    'canvas.sub':             'Entity Graph Mode',
+    'canvas.sub':             'Canvas mode',
     'session.type.conversation': 'Chat',
     'session.type.task':      'Task',
     'session.type.event':     'Event',
@@ -2430,7 +1374,7 @@ function updatePanelTitle() {
 let activeWidgetType = null;  // tracks current canvas widget type
 
 // ── AIPP Widget View 协议 ────────────────────────────────────────────────────
-// 每个 widget 当前激活的视图 id：{ 'memory-manager': 'RELATION', 'entity-graph': 'ontology' }
+// 每个 widget 当前激活的视图 id：{ [widgetType]: viewId }
 const _aippActiveViews = {};
 
 /**
@@ -2438,7 +1382,7 @@ const _aippActiveViews = {};
  * Host 发消息时自动将 (widgetType, viewId) 发送给后端，
  * 后端从 AppRegistry 查 widget manifest 的 llm_hint 注入 LLM。
  *
- * @param {string} widgetType  如 'memory-manager'
+ * @param {string} widgetType
  * @param {string} viewId      如 'RELATION'
  */
 function aippReportView(widgetType, viewId) {
@@ -2457,13 +1401,24 @@ function aippCurrentWidgetView() {
   return { widget_type: activeWidgetType, view_id: viewId };
 }
 
+function appIdForWidget(widgetType) {
+  return (_widgetManifests[widgetType] && _widgetManifests[widgetType].app_id) || _currentAppId || '';
+}
+
+function appProxyUrlForWidget(widgetType, path) {
+  const appId = appIdForWidget(widgetType);
+  if (!appId) return path;
+  const suffix = String(path || '').startsWith('/') ? path : '/' + path;
+  return `/api/proxy/app/${encodeURIComponent(appId)}${suffix}`;
+}
+
 function updateCanvasSessionLabel() {
   const el = document.getElementById('canvas-session-label');
   const sess = sessionData[currentSessionId];
   const name = sess ? sess.name || currentSessionId : currentSessionId;
   const type = sess?.type || '';
-  const showWorldId = (sess?.widgetType === 'entity-graph' || activeWidgetType === 'entity-graph') && !!canvasSessionId;
-  const displayName = showWorldId ? `${name} · ${canvasSessionId}` : name;
+  const showCanvasSession = !!canvasSessionId && !!(sess?.widgetType || activeWidgetType);
+  const displayName = showCanvasSession ? `${name} · ${canvasSessionId}` : name;
   const maxLen = 16;
   const truncated = displayName.length > maxLen ? displayName.slice(0, maxLen) + '...' : displayName;
   el.textContent = type ? `${truncated}(${type})` : truncated;
@@ -2475,7 +1430,7 @@ function enterCanvasMode(worldName, widgetType, initialData) {
   panelOpenBeforeCanvas = panelOpen;
   setPanelOpen(false);
   isCanvasMode = true;
-  activeWidgetType = widgetType || 'entity-graph';
+  activeWidgetType = widgetType || activeWidgetType;
   document.body.classList.add('canvas-mode');
 
   // Plan D: 若 widget manifest 声明了 render.url，走通用 ESM 挂载，
@@ -2486,23 +1441,14 @@ function enterCanvasMode(worldName, widgetType, initialData) {
     document.body.classList.remove('memory-mode');
     document.body.classList.add('aipp-canvas-mode');
     const mountEl = _ensureAippCanvasMount();
-    mountAippWidget(mountEl, activeWidgetType, Object.assign({ worldName }, initialData || {}));
-  } else if (activeWidgetType === 'memory-manager') {
-    document.body.classList.remove('aipp-canvas-mode');
-    document.body.classList.add('memory-mode');
-    // 初始默认视图 = 全部记忆
-    if (!_aippActiveViews['memory-manager']) aippReportView('memory-manager', 'ALL');
+    mountAippWidget(mountEl, activeWidgetType, Object.assign({ worldName, canvasSessionId }, initialData || {}));
   } else {
     document.body.classList.remove('aipp-canvas-mode');
     document.body.classList.remove('memory-mode');
-    // entity-graph 默认视图 = ontology
-    if (!_aippActiveViews['entity-graph']) aippReportView('entity-graph', 'ontology');
   }
   document.getElementById('mode-badge').textContent = t('mode.canvas');
   if (worldName) {
-    const title = (widgetType === 'entity-graph' && canvasSessionId)
-      ? `${worldName} · ${canvasSessionId}`
-      : worldName;
+    const title = canvasSessionId ? `${worldName} · ${canvasSessionId}` : worldName;
     document.getElementById('side-title').textContent = title;
   }
   updateCanvasSessionLabel();
@@ -2521,7 +1467,7 @@ function exitCanvasMode() {
   document.getElementById('mode-badge').textContent = t('mode.chat');
   updateCanvasSessionLabel();
   if (sessionData[currentSessionId]) sessionData[currentSessionId].canvasMode = false;
-  // selectedNodeId / hideNodeDetail now owned by entity-graph widget; aliases gone after unmount.
+  // Widget internals (selection/detail panels, etc.) are cleared by widget unmount.
   try { window.hideNodeDetail?.(); } catch {}
   setPanelOpen(panelOpenBeforeCanvas);
   updateFuncbarActive();
@@ -2537,718 +1483,6 @@ function exitToMainSession() {
 }
 
 
-async function worldProxyTool(tool, args) {
-  const r = await fetch(`/api/proxy/tools/${tool}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ args })
-  });
-  return r.json();
-}
-
-const _runtimeFeedState = {
-  worldId: null,
-  worldName: null,
-  cursor: null,
-  timer: null,
-  es: null,
-  reconnectTimer: null,
-  seen: new Set(),
-  dispatched: new Set(),
-  pendingDecisionById: new Map(),
-  eventSessionId: null,
-  taskSessionId: null,
-};
-let RUNTIME_ENV = 'production';
-
-function _runtimeSessionId(worldId, kind) {
-  return `runtime-${kind}-${worldId}`;
-}
-
-function _ensureRuntimePanelSessions(worldId, worldName) {
-  const eventId = _runtimeSessionId(worldId, 'event');
-  const taskId  = _runtimeSessionId(worldId, 'task');
-  const title   = worldName || 'World';
-  if (!sessionData[eventId]) {
-    sessionData[eventId] = {
-      id: eventId, type: 'event', name: `${title} · Runtime Events`,
-      status: 'active', messages: [], canvasMode: false,
-      graphState: { nodes: [], edges: [] }, showWelcome: false,
-    };
-  } else {
-    sessionData[eventId].name = `${title} · Runtime Events`;
-  }
-  if (!sessionData[taskId]) {
-    sessionData[taskId] = {
-      id: taskId, type: 'task', name: `${title} · Runtime Tasks`,
-      status: 'active', messages: [], canvasMode: false,
-      graphState: { nodes: [], edges: [] }, showWelcome: false,
-      runtimeMeta: {
-        worldId,
-        worldName: title,
-        taskStatus: 'active',
-        widgetType: 'worldone.running',
-        widgetId: `worldone.running.${worldId}`,
-        label: `${title} · Runtime Tasks`,
-        title: '等待事件',
-        message: 'waiting for production runtime events...',
-        decisionId: '',
-        suspensionId: '',
-        missingParams: [],
-        approvalKind: '',
-      }
-    };
-  } else {
-    sessionData[taskId].name = `${title} · Runtime Tasks`;
-    sessionData[taskId].runtimeMeta = {
-      ...(sessionData[taskId].runtimeMeta || {}),
-      worldId,
-      worldName: title,
-      label: sessionData[taskId].runtimeMeta?.label || `${title} · Runtime Tasks`,
-    };
-  }
-  _runtimeFeedState.eventSessionId = eventId;
-  _runtimeFeedState.taskSessionId  = taskId;
-}
-
-function _runtimeTaskMeta(taskSid) {
-  const sess = sessionData[taskSid];
-  if (!sess) return null;
-  if (!sess.runtimeMeta) {
-    sess.runtimeMeta = {
-      worldId: _runtimeFeedState.worldId || '',
-      worldName: _runtimeFeedState.worldName || 'World',
-      taskStatus: 'active',
-      widgetType: 'worldone.running',
-      widgetId: `worldone.running.${_runtimeFeedState.worldId || 'world'}`,
-      label: sess.name || 'Runtime Task',
-      title: '等待事件',
-      message: 'waiting for production runtime events...',
-      decisionId: '',
-      suspensionId: '',
-      missingParams: [],
-      approvalKind: '',
-    };
-  }
-  return sess.runtimeMeta;
-}
-
-function _runtimeTaskStatusLabel(status) {
-  switch ((status || '').toLowerCase()) {
-    case 'internal': return 'INTERNAL';
-    case 'ready': return 'READY';
-    case 'executing': return 'EXECUTING';
-    case 'pending': return 'PENDING';
-    case 'done': return 'DONE';
-    case 'failed': return 'FAILED';
-    case 'rejected': return 'REJECTED';
-    default: return '';
-  }
-}
-
-function _decisionUsesNewTask(e) {
-  const payload = e?.payload || {};
-  const mode = String(payload.execution_session_mode || '').toLowerCase();
-  if (mode === 'new_task') return true;
-  if (mode === 'main_session') return false;
-  return payload.new_task === true;
-}
-
-function _runtimeTaskDisplayLabel(worldId, actionName, fallbackWorldName) {
-  if (worldId === 'world-eai-onboarding') {
-    if (actionName === 'register_onboarding') return 'Will 入职登记';
-    if (actionName === 'initiate_badge') return 'Will 领取 badge';
-    return 'Will 入职流程';
-  }
-  return fallbackWorldName ? `${fallbackWorldName} · Runtime Task` : 'Runtime Task';
-}
-
-function _setRuntimeTaskState(taskSid, patch) {
-  const sess = sessionData[taskSid];
-  const meta = _runtimeTaskMeta(taskSid);
-  if (!sess || !meta) return;
-  Object.assign(meta, patch || {});
-  if (meta.label) sess.name = meta.label;
-}
-
-function _syncRuntimeTaskFromEvent(taskSid, e) {
-  const meta = _runtimeTaskMeta(taskSid);
-  if (!meta || !e) return;
-  const evtType = e.eventType || e.event_type || '';
-  const payload = e.payload || {};
-  const worldId = _runtimeFeedState.worldId || meta.worldId || '';
-  const worldName = _runtimeFeedState.worldName || meta.worldName || 'World';
-  if (evtType === 'decision') {
-    const decisionId = payload.decision_id || meta.decisionId || '';
-    const needsDecisionApproval = e.needUserAction === true || payload.need_approval === true;
-    _setRuntimeTaskState(taskSid, {
-      decisionId,
-      taskStatus: needsDecisionApproval ? 'pending' : 'ready',
-      widgetType: needsDecisionApproval ? 'worldone.approve' : 'worldone.running',
-      widgetId: needsDecisionApproval
-        ? `worldone.approve.decision.${decisionId || e.id || e.cursor || 'decision'}`
-        : `worldone.running.${decisionId || worldId || 'world'}`,
-      approvalKind: needsDecisionApproval ? 'decision' : '',
-      label: _runtimeTaskDisplayLabel(worldId, '', worldName),
-      title: needsDecisionApproval ? '等待审批' : '已就绪',
-      message: needsDecisionApproval ? '该 decision 已产生，等待批准。' : 'decision 已产生，等待 executor 处理。',
-    });
-    return;
-  }
-
-  if (evtType !== 'action') return;
-  const actionName = payload.action_name || '';
-  const actionStatus = (payload.status || '').toLowerCase();
-  const missingParams = Array.isArray(payload.missing_params) ? payload.missing_params : [];
-  const suspensionId = payload.suspension_id || '';
-  const label = _runtimeTaskDisplayLabel(worldId, actionName, worldName);
-  if (actionStatus === 'awaiting_input') {
-    const isApproval = missingParams.some(p => /approve|approval|approved/i.test(String(p || '')));
-    _setRuntimeTaskState(taskSid, {
-      taskStatus: 'pending',
-      widgetType: isApproval ? 'worldone.approve' : 'worldone.arg-input',
-      widgetId: `${isApproval ? 'worldone.approve.action' : 'worldone.arg-input'}.${suspensionId || actionName || 'action'}`,
-      approvalKind: isApproval ? 'action' : '',
-      suspensionId,
-      missingParams,
-      label,
-      title: isApproval ? '等待批准' : '等待补参',
-      message: isApproval ? '批准后会继续执行当前动作。' : '当前动作缺少参数，补充后会继续执行。',
-    });
-    return;
-  }
-  if (actionStatus === 'begin' || actionStatus === 'resumed') {
-    _setRuntimeTaskState(taskSid, {
-      taskStatus: 'internal',
-      widgetType: 'worldone.running',
-      widgetId: `worldone.running.${suspensionId || actionName || worldId || 'world'}`,
-      label,
-      title: '内部执行中',
-      message: 'decision is still running inside world...',
-    });
-    return;
-  }
-  if (actionStatus === 'done') {
-    const isFinal = actionName === 'initiate_badge' || actionName === 'activate_employee';
-    _setRuntimeTaskState(taskSid, {
-      taskStatus: isFinal ? 'done' : 'ready',
-      widgetType: isFinal ? 'worldone.running' : 'worldone.running',
-      widgetId: `worldone.running.${actionName || worldId || 'world'}`,
-      label,
-      title: isFinal ? '执行完成' : '已就绪',
-      message: isFinal ? '事件任务执行完毕。' : 'world 内部 action 已完成，等待 executor / host 收敛。',
-    });
-    return;
-  }
-  if (actionStatus === 'failed') {
-    _setRuntimeTaskState(taskSid, {
-      taskStatus: 'failed',
-      widgetType: 'worldone.running',
-      widgetId: `worldone.failed.${suspensionId || actionName || worldId || 'world'}`,
-      label,
-      title: '执行失败',
-      message: payload.detail || '动作执行失败。',
-    });
-  }
-}
-
-function _renderRuntimeTaskWidget(taskSid) {
-  const meta = _runtimeTaskMeta(taskSid);
-  if (!meta) return;
-  const pill = _runtimeTaskStatusLabel(meta.taskStatus);
-  let html = '';
-  if (meta.widgetType === 'worldone.arg-input') {
-    const missing = Array.isArray(meta.missingParams) ? meta.missingParams : [];
-    html = `
-      <div class="sys-inline-card">
-        <div class="sys-inline-title">${escHtml(meta.title || '等待补参')}</div>
-        <div class="runtime-widget-sub">${escHtml(meta.message || '')}</div>
-        <div class="runtime-widget-pills">
-          ${pill ? `<span class="runtime-widget-pill">${escHtml(pill)}</span>` : ''}
-          ${missing.map(p => `<span class="runtime-widget-pill">${escHtml(String(p))}</span>`).join('')}
-        </div>
-        <textarea id="runtime-arg-input-${escHtml(taskSid)}" class="runtime-widget-json">{}</textarea>
-        <div class="runtime-card-actions">
-          <button class="sys-inline-btn primary" onclick="runtimeSubmitTaskArgs('${escHtml(taskSid)}')">提交参数并继续</button>
-        </div>
-      </div>`;
-  } else if (meta.widgetType === 'worldone.approve') {
-    html = `
-      <div class="sys-inline-card">
-        <div class="sys-inline-title">${escHtml(meta.title || '等待批准')}</div>
-        <div class="runtime-widget-sub">${escHtml(meta.message || '')}</div>
-        <div class="runtime-widget-pills">
-          ${pill ? `<span class="runtime-widget-pill">${escHtml(pill)}</span>` : ''}
-          ${meta.suspensionId ? `<span class="runtime-widget-pill">${escHtml(meta.suspensionId)}</span>` : ''}
-        </div>
-        <div class="runtime-card-actions">
-          <button class="sys-inline-btn primary" onclick="runtimeApproveTask('${escHtml(taskSid)}')">批准并执行</button>
-          <button class="sys-inline-btn danger" onclick="runtimeRejectTask('${escHtml(taskSid)}')">拒绝</button>
-        </div>
-      </div>`;
-  } else {
-    const showSpinner = ['internal', 'executing'].includes((meta.taskStatus || '').toLowerCase());
-    html = `
-      <div class="sys-inline-card">
-        <div class="sys-inline-title">${escHtml(meta.title || '运行中')}</div>
-        <div class="runtime-widget-sub">${showSpinner ? '<span class="lp-spinner"></span> ' : ''}${escHtml(meta.message || 'running...')}</div>
-        <div class="runtime-widget-pills">
-          ${pill ? `<span class="runtime-widget-pill">${escHtml(pill)}</span>` : ''}
-          ${meta.widgetId ? `<span class="runtime-widget-pill">${escHtml(meta.widgetId)}</span>` : ''}
-        </div>
-      </div>`;
-  }
-  addMessageToSessionHtml('main', 'system', html);
-}
-
-async function openRuntimeTaskSession(taskSid) {
-  const sess = sessionData[taskSid];
-  if (!sess?.runtimeMeta) {
-    await switchSession(taskSid);
-    return;
-  }
-  await switchSession('main');
-  _renderRuntimeTaskWidget(taskSid);
-}
-
-async function runtimeSubmitTaskArgs(taskSid) {
-  const meta = _runtimeTaskMeta(taskSid);
-  if (!meta?.suspensionId || !_runtimeFeedState.worldId) return;
-  const ta = document.getElementById(`runtime-arg-input-${taskSid}`);
-  const raw = (ta?.value || '{}').trim() || '{}';
-  let params = {};
-  try {
-    params = JSON.parse(raw);
-  } catch {
-    alert('JSON 解析失败');
-    return;
-  }
-  await runtimeResumeTask(taskSid, params);
-}
-
-async function runtimeApproveTask(taskSid) {
-  const meta = _runtimeTaskMeta(taskSid);
-  if (!meta) return;
-  if (meta.approvalKind === 'decision' && meta.decisionId) {
-    await runtimeApproveDecision(meta.decisionId, 'approved');
-    _setRuntimeTaskState(taskSid, {
-      taskStatus: 'executing',
-      widgetType: 'worldone.running',
-      title: '执行中',
-      message: 'executor is executing...',
-    });
-    renderSessions();
-    return;
-  }
-  await runtimeResumeTask(taskSid, { approved: true, approved_by: 'user' });
-}
-
-async function runtimeRejectTask(taskSid) {
-  const meta = _runtimeTaskMeta(taskSid);
-  if (!meta) return;
-  if (meta.approvalKind === 'decision' && meta.decisionId) {
-    await runtimeApproveDecision(meta.decisionId, 'rejected');
-  }
-  _setRuntimeTaskState(taskSid, {
-    taskStatus: 'rejected',
-    title: '已拒绝',
-    message: '当前任务已被拒绝。',
-  });
-  renderSessions();
-}
-
-async function runtimeResumeTask(taskSid, params) {
-  const meta = _runtimeTaskMeta(taskSid);
-  if (!meta?.suspensionId || !_runtimeFeedState.worldId) return;
-  try {
-    await fetch('/api/executors/resume-arg', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        world_id: _runtimeFeedState.worldId,
-        env: RUNTIME_ENV,
-        registration_id: meta.registrationId || '',
-        app_id: meta.appId || '',
-        flow_id: meta.flowId || '',
-        suspension_id: meta.suspensionId,
-        submitted_params: params || {}
-      }),
-    }).then(r => r.json());
-    _setRuntimeTaskState(taskSid, {
-      taskStatus: 'executing',
-      widgetType: 'worldone.running',
-      widgetId: `worldone.running.${meta.suspensionId}`,
-      title: '执行中',
-      message: 'executor is executing...',
-    });
-    renderSessions();
-  } catch (_) {}
-}
-
-function _runtimeEventText(e) {
-  const ts = e.timestamp ? String(e.timestamp).replace('T', ' ').replace('Z', '') : '';
-  const type = e.eventType || e.event_type || 'event';
-  const payload = e.payload || {};
-  const summary = e.summary || '';
-
-  if (type === 'decision') {
-    const decisionId = payload.decision_id || '-';
-    const status = payload.status || '-';
-    const need = (e.needUserAction === true || payload.need_approval === true) ? 'yes' : 'no';
-    const result = payload.execution_result || 'pending';
-    return [
-      `**Decision** \`${decisionId}\``,
-      `- status: \`${status}\``,
-      `- need_approval: \`${need}\``,
-      `- execution_result: \`${result}\``,
-      summary ? `- summary: ${summary}` : null,
-      ts ? `- time: \`${ts}\`` : null,
-    ].filter(Boolean).join('\n');
-  }
-
-  if (type === 'action') {
-    const actionName = payload.action_name || '-';
-    const status = payload.status || '-';
-    const missing = Array.isArray(payload.missing_params) ? payload.missing_params : [];
-    const isAwaiting = status === 'awaiting_input';
-    return [
-      `${isAwaiting ? '⚠️ ' : ''}**Action** \`${actionName}\``,
-      `- status: \`${status}\``,
-      missing.length ? `- missing_params: \`${missing.join(', ')}\`` : null,
-      summary ? `- summary: ${summary}` : null,
-      ts ? `- time: \`${ts}\`` : null,
-    ].filter(Boolean).join('\n');
-  }
-
-  if (type === 'entity') {
-    const entityType = payload.entity_type || '-';
-    const entityId = payload.entity_id ?? '-';
-    const op = payload.operation || '-';
-    return [
-      `**Entity** \`${entityType}#${entityId}\``,
-      `- operation: \`${op}\``,
-      summary ? `- summary: ${summary}` : null,
-      ts ? `- time: \`${ts}\`` : null,
-    ].filter(Boolean).join('\n');
-  }
-
-  if (type === 'arg') {
-    const suspensionId = payload.suspension_id || '-';
-    const suppliedBy = payload.supplied_by || '-';
-    return [
-      `**Arg Input** \`${suspensionId}\``,
-      `- supplied_by: \`${suppliedBy}\``,
-      summary ? `- summary: ${summary}` : null,
-      ts ? `- time: \`${ts}\`` : null,
-    ].filter(Boolean).join('\n');
-  }
-
-  return [
-    `**${type}**`,
-    summary || '-',
-    ts ? `- time: \`${ts}\`` : null,
-  ].filter(Boolean).join('\n');
-}
-
-function _consumeRuntimeEvents(events) {
-  if (!Array.isArray(events) || events.length === 0) return;
-  const eventSid = _runtimeFeedState.eventSessionId;
-  const taskSid  = _runtimeFeedState.taskSessionId;
-  if (!eventSid || !taskSid) return;
-
-  for (const e of events) {
-    const id = e.id || e.cursor;
-    if (!id || _runtimeFeedState.seen.has(id)) continue;
-    _runtimeFeedState.seen.add(id);
-    addMessageToSession(eventSid, 'system', _runtimeEventText(e));
-    const evtType = (e.eventType || e.event_type);
-    if (evtType === 'decision') {
-      const useTask = _decisionUsesNewTask(e);
-      const decisionViewSid = useTask ? taskSid : 'main';
-      if (useTask) {
-        _syncRuntimeTaskFromEvent(taskSid, e);
-      }
-      if (e.needUserAction === true) {
-        const decisionId = e?.payload?.decision_id || '';
-        if (decisionId) _runtimeFeedState.pendingDecisionById.set(decisionId, e);
-        const card = `
-          <div class="sys-inline-card">
-            <div class="sys-inline-title">⏳ Decision 待审批</div>
-            <div class="runtime-card-meta">${escHtml(_runtimeEventText(e))}</div>
-            <div class="runtime-card-actions">
-              <button class="sys-inline-btn primary" onclick="runtimeApproveDecision('${escHtml(decisionId)}','approved')">批准并执行</button>
-              <button class="sys-inline-btn danger" onclick="runtimeApproveDecision('${escHtml(decisionId)}','rejected')">拒绝</button>
-            </div>
-          </div>`;
-        addMessageToSessionHtml(decisionViewSid, 'system', card);
-      }
-      if (e.needUserAction !== true) {
-        _dispatchDecisionToExecutor(e, useTask ? taskSid : 'main');
-      }
-      continue;
-    }
-    _syncRuntimeTaskFromEvent(taskSid, e);
-    if (evtType === 'decision' && e.needUserAction === true) {
-      const decisionId = e?.payload?.decision_id || '';
-      if (decisionId) _runtimeFeedState.pendingDecisionById.set(decisionId, e);
-      const card = `
-        <div class="sys-inline-card">
-          <div class="sys-inline-title">⏳ Decision 待审批</div>
-          <div class="runtime-card-meta">${escHtml(_runtimeEventText(e))}</div>
-          <div class="runtime-card-actions">
-            <button class="sys-inline-btn primary" onclick="runtimeApproveDecision('${escHtml(decisionId)}','approved')">批准并执行</button>
-            <button class="sys-inline-btn danger" onclick="runtimeApproveDecision('${escHtml(decisionId)}','rejected')">拒绝</button>
-          </div>
-        </div>`;
-      addMessageToSessionHtml(taskSid, 'system', card);
-    }
-    if (evtType === 'decision' && e.needUserAction !== true) {
-      _dispatchDecisionToExecutor(e, taskSid);
-    }
-  }
-  renderSessions();
-}
-
-async function _dispatchDecisionToExecutor(e, decisionViewSid) {
-  const eventId = e?.id || e?.cursor;
-  if (!eventId || _runtimeFeedState.dispatched.has(eventId)) return;
-  _runtimeFeedState.dispatched.add(eventId);
-  const worldId = _runtimeFeedState.worldId;
-  if (!worldId) return;
-  try {
-    const result = await fetch('/api/executors/route', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ world_id: worldId, env: RUNTIME_ENV, event: e }),
-    }).then(r => r.json());
-    const sid = _runtimeFeedState.eventSessionId;
-    const taskSid = decisionViewSid || _runtimeFeedState.taskSessionId;
-    if (taskSid && taskSid !== 'main') {
-      const nextStatus = result?.status === 'done' ? 'done'
-        : result?.status === 'failed' ? 'failed'
-        : result?.status === 'rejected' ? 'rejected'
-        : 'executing';
-      _setRuntimeTaskState(taskSid, {
-        taskStatus: nextStatus,
-        title: nextStatus === 'done' ? '执行完成'
-          : nextStatus === 'failed' ? '执行失败'
-          : nextStatus === 'rejected' ? '已拒绝'
-          : '执行中',
-        message: nextStatus === 'done' ? 'executor / host 已完成收敛。'
-          : nextStatus === 'failed' ? 'executor 执行失败。'
-          : nextStatus === 'rejected' ? 'executor / host 已拒绝该任务。'
-          : 'executor is executing...',
-      });
-    }
-    if (sid && result && result.status
-        && !['duplicate', 'no_match', 'no_handler', 'skipped_need_approval'].includes(result.status)) {
-      const reg = result.registration_id ? ` registration=${result.registration_id}` : '';
-      addMessageToSession(sid, 'system', `🤖 Executor route: \`${result.status}\`${reg}`);
-      _handleExecutorRouteResultUI(result, sid);
-      renderSessions();
-    }
-  } catch (_) {
-    // keep silent; routing service is best-effort for now
-  }
-}
-
-function _handleExecutorRouteResultUI(result, sid) {
-  if (!result || !sid) return;
-  const st = result.status || '';
-  if (st === 'awaiting_arg_widget') {
-    const appId = result.app_id || '';
-    const regId = result.registration_id || '';
-    const flow = result?.result?.arg_flow || {};
-    const flowId = flow.flow_id || '';
-    const suspensionId = flow.suspension_id || '';
-    const title = flow.title || '补参';
-    const widgetType = flow.widget_type || '';
-    const html = `
-      <div class="sys-inline-card">
-        <div class="sys-inline-title">🧩 ${escHtml(title)}</div>
-        <div class="runtime-card-meta">widget: ${escHtml(widgetType || '-')}, suspension: ${escHtml(suspensionId || '-')}</div>
-        <div class="runtime-card-actions">
-          <button class="sys-inline-btn primary" onclick="runtimeOpenExecutorApp('${escHtml(appId)}')">打开 Executor App</button>
-          <button class="sys-inline-btn secondary" onclick="runtimeResumeArgFlowPrompt('${escHtml(regId)}','${escHtml(appId)}','${escHtml(flowId)}','${escHtml(suspensionId)}')">提交参数并恢复</button>
-        </div>
-      </div>`;
-    addMessageToSessionHtml(sid, 'system', html);
-  }
-}
-
-async function runtimeApproveDecision(decisionId, result) {
-  const e = _runtimeFeedState.pendingDecisionById.get(decisionId);
-  if (!e || !_runtimeFeedState.worldId) return;
-  try {
-    const resp = await fetch('/api/executors/approval', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        world_id: _runtimeFeedState.worldId,
-        env: RUNTIME_ENV,
-        event: e,
-        result,
-        approved_by: 'user',
-        comment: ''
-      }),
-    }).then(r => r.json());
-    const sid = _runtimeFeedState.eventSessionId;
-    if (sid) {
-      addMessageToSession(sid, 'system', `✅ approval: \`${result}\` -> \`${resp.status || 'ok'}\``);
-      _handleExecutorRouteResultUI(resp, sid);
-      renderSessions();
-    }
-  } catch (_) {}
-  _runtimeFeedState.pendingDecisionById.delete(decisionId);
-}
-
-function runtimeOpenExecutorApp(appId) {
-  if (!appId) return;
-  openAppDirect(appId);
-}
-
-async function runtimeResumeArgFlowPrompt(registrationId, appId, flowId, suspensionId) {
-  if (!suspensionId || !_runtimeFeedState.worldId) return;
-  const raw = prompt('请输入提交参数 JSON（例如 {"asset_type":"Laptop","reason":"Onboarding"}）', '{}');
-  if (raw == null) return;
-  let params = {};
-  try {
-    params = JSON.parse(raw);
-  } catch {
-    alert('JSON 解析失败');
-    return;
-  }
-  try {
-    const resp = await fetch('/api/executors/resume-arg', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        world_id: _runtimeFeedState.worldId,
-        env: RUNTIME_ENV,
-        registration_id: registrationId || '',
-        app_id: appId || '',
-        flow_id: flowId || '',
-        suspension_id: suspensionId,
-        submitted_params: params
-      }),
-    }).then(r => r.json());
-    const sid = _runtimeFeedState.eventSessionId;
-    if (sid) {
-      addMessageToSession(sid, 'system', `🔄 resume-arg: \`${resp.status || 'ok'}\``);
-      renderSessions();
-    }
-  } catch (_) {}
-}
-
-async function pullRuntimeEvents(reset = false) {
-  const worldId = _runtimeFeedState.worldId;
-  if (!worldId) return;
-  try {
-    const qp = new URLSearchParams();
-    qp.set('env', RUNTIME_ENV);
-    qp.set('limit', '100');
-    if (!reset && _runtimeFeedState.cursor) qp.set('cursor', _runtimeFeedState.cursor);
-    const url = `/api/proxy/app/world-entitir/api/worlds/${encodeURIComponent(worldId)}/runtime-events?` + qp.toString();
-    const data = await fetch(url).then(r => r.json());
-    if (reset) {
-      const es = sessionData[_runtimeFeedState.eventSessionId];
-      const ts = sessionData[_runtimeFeedState.taskSessionId];
-      if (es) es.messages = [];
-      if (ts) ts.messages = [];
-    }
-    _consumeRuntimeEvents(data.events || []);
-    if (data.next_cursor) _runtimeFeedState.cursor = data.next_cursor;
-  } catch (e) {
-    // ignore network errors; next poll will retry
-  }
-}
-
-function _runtimeStreamUrl(worldId, cursor) {
-  const qp = new URLSearchParams();
-  qp.set('env', RUNTIME_ENV);
-  if (cursor) qp.set('cursor', cursor);
-  return `/api/proxy/app/world-entitir/api/worlds/${encodeURIComponent(worldId)}/runtime-events/stream?` + qp.toString();
-}
-
-function _connectRuntimeEventSse(reset = false) {
-  const worldId = _runtimeFeedState.worldId;
-  if (!worldId || typeof EventSource === 'undefined') return false;
-  if (_runtimeFeedState.timer) {
-    clearInterval(_runtimeFeedState.timer);
-    _runtimeFeedState.timer = null;
-  }
-
-  if (reset) {
-    _runtimeFeedState.seen.clear();
-    _runtimeFeedState.cursor = null;
-    const es = sessionData[_runtimeFeedState.eventSessionId];
-    const ts = sessionData[_runtimeFeedState.taskSessionId];
-    if (es) es.messages = [];
-    if (ts) ts.messages = [];
-  }
-
-  if (_runtimeFeedState.es) {
-    try { _runtimeFeedState.es.close(); } catch (_) {}
-    _runtimeFeedState.es = null;
-  }
-  const es = new EventSource(_runtimeStreamUrl(worldId, _runtimeFeedState.cursor));
-  _runtimeFeedState.es = es;
-
-  es.addEventListener('runtime_event', (ev) => {
-    try {
-      const item = JSON.parse(ev.data || '{}');
-      if (item && item.cursor) _runtimeFeedState.cursor = item.cursor;
-      _consumeRuntimeEvents([item]);
-    } catch (_) {}
-  });
-
-  es.addEventListener('ready', () => {
-    // stream ready
-  });
-
-  es.onerror = () => {
-    try { es.close(); } catch (_) {}
-    if (_runtimeFeedState.es === es) _runtimeFeedState.es = null;
-    if (_runtimeFeedState.reconnectTimer) clearTimeout(_runtimeFeedState.reconnectTimer);
-    _runtimeFeedState.reconnectTimer = setTimeout(() => {
-      // reconnect with cursor-based resume; fallback to poll once if reconnect fails
-      if (!_connectRuntimeEventSse(false)) pullRuntimeEvents(false);
-    }, 2000);
-  };
-
-  return true;
-}
-
-function stopRuntimeEventFeed() {
-  if (_runtimeFeedState.timer) clearInterval(_runtimeFeedState.timer);
-  _runtimeFeedState.timer = null;
-  if (_runtimeFeedState.reconnectTimer) clearTimeout(_runtimeFeedState.reconnectTimer);
-  _runtimeFeedState.reconnectTimer = null;
-  if (_runtimeFeedState.es) {
-    try { _runtimeFeedState.es.close(); } catch (_) {}
-    _runtimeFeedState.es = null;
-  }
-  _runtimeFeedState.worldId = null;
-  _runtimeFeedState.worldName = null;
-  _runtimeFeedState.cursor = null;
-  _runtimeFeedState.seen.clear();
-  _runtimeFeedState.dispatched.clear();
-  _runtimeFeedState.pendingDecisionById.clear();
-}
-
-function startRuntimeEventFeed(worldId, worldName) {
-  if (!worldId) return;
-  if (_runtimeFeedState.worldId !== worldId) {
-    stopRuntimeEventFeed();
-    _runtimeFeedState.worldId = worldId;
-  }
-  _runtimeFeedState.worldName = worldName || _runtimeFeedState.worldName || 'World';
-  _ensureRuntimePanelSessions(worldId, worldName);
-  // Prefer SSE real-time stream; keep polling as fallback.
-  if (!_connectRuntimeEventSse(true) && !_runtimeFeedState.timer) {
-    pullRuntimeEvents(true);
-    _runtimeFeedState.timer = setInterval(() => pullRuntimeEvents(false), 5000);
-  }
-}
 
 function lcFirst(s) { return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
 
@@ -3368,27 +1602,23 @@ async function switchSession(targetId) {
   // 2. 判断 canvas 模式切换
   const needsCanvas = next.canvasMode || !!next.widgetType;
   if (needsCanvas && !isCanvasMode) {
-    enterCanvasMode(next.name, next.widgetType);
+    enterCanvasMode(next.name, next.widgetType, { graphState: next.graphState || graphState, canvasSessionId: next.canvasSessionId || canvasSessionId });
   } else if (needsCanvas && isCanvasMode && next.widgetType !== activeWidgetType) {
     // switching between different canvas widget types
-    activeWidgetType = next.widgetType || 'entity-graph';
+    activeWidgetType = next.widgetType || activeWidgetType;
     const _swManifest = _widgetManifests[activeWidgetType];
     const _swPlanDUrl = _swManifest && _swManifest.render && _swManifest.render.url;
     if (_swPlanDUrl) {
       document.body.classList.remove('memory-mode');
       document.body.classList.add('aipp-canvas-mode');
-      mountAippWidget(_ensureAippCanvasMount(), activeWidgetType, { worldName: next.name });
-    } else if (activeWidgetType === 'memory-manager') {
-      document.body.classList.remove('aipp-canvas-mode');
-      _unmountAippCanvasMount();
-      document.body.classList.add('memory-mode');
+      mountAippWidget(_ensureAippCanvasMount(), activeWidgetType, { worldName: next.name, canvasSessionId: next.canvasSessionId || canvasSessionId });
     } else {
       document.body.classList.remove('memory-mode');
       document.body.classList.remove('aipp-canvas-mode');
       _unmountAippCanvasMount();
     }
     if (next.name) {
-      const title = (next.widgetType === 'entity-graph' && (next.canvasSessionId || canvasSessionId))
+      const title = (next.canvasSessionId || canvasSessionId)
         ? `${next.name} · ${next.canvasSessionId || canvasSessionId}`
         : next.name;
       document.getElementById('side-title').textContent = title;
@@ -3404,59 +1634,10 @@ async function switchSession(targetId) {
   if (isCanvasMode) syncFullToPanel();
   renderSessions();
 
-  // 4. 若需要 canvas 且本地无图数据，通过 ToolProxy 恢复 canvas 状态
+  // 4. Canvas widgets own their restore/data-refresh behavior. Host only keeps
+  // the canvas session id and remounts the AIPP-provided module.
   if (needsCanvas) {
-    if (next.widgetType === 'memory-manager') {
-      // memory-manager is now Plan-D AIPP-owned; widget self-loads from backend
-      // on mount. Nothing to do at host level for restore.
-    } else {
-      // entity-graph canvas restoration
-      // 恢复 canvasSessionId（直接工具调用所需）
-      if (next.canvasSessionId) {
-        canvasSessionId = next.canvasSessionId;
-        OutlineLang.invalidateTypeMap();
-        OutlineLang.loadTypeMap(window._typeMapUrl?.() || "/api/outline/types");
-        window.loadGraphLayout?.(canvasSessionId);
-        window.loadDecisionGraphLayout?.(canvasSessionId);
-      }
-      const hasGraphData = next.graphState && next.graphState.nodes && next.graphState.nodes.length > 0;
-      if (!hasGraphData && next.canvasSessionId) {
-        try {
-          const result = await fetch('/api/proxy/tools/world_get_design', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ args: { session_id: next.canvasSessionId } }),
-          }).then(r => r.json());
-
-          const canvas = result.canvas;
-          if (canvas && canvas.props) {
-            graphState = {
-              nodes: canvas.props.nodes || [],
-              edges: canvas.props.edges || [],
-            };
-            window.entityGraphSetGraphState?.(graphState);
-            next.graphState = { ...graphState };
-            window.renderGraph?.();
-          }
-        } catch(e) { /* 无法恢复图数据，显示空画布 */ }
-      } else if (hasGraphData) {
-        graphState = { ...next.graphState };
-        window.entityGraphSetGraphState?.(graphState);
-        window.renderGraph?.();
-      }
-      // entity-graph 含三 Tab：恢复时额外加载 decisions / actions 列表 + pipeline 状态
-      if (canvasSessionId) {
-        window.loadDecisionsList?.();
-        window.loadActionsList?.();
-        window.refreshPipelineStatus?.();
-        startRuntimeEventFeed(canvasSessionId, next.name);
-      }
-    }
-  } else if (!(targetId === 'main' && _runtimeFeedState.worldId)) {
-    stopRuntimeEventFeed();
-  }
-  if (needsCanvas && next.widgetType === 'memory-manager') {
-    stopRuntimeEventFeed();
+    if (next.canvasSessionId) canvasSessionId = next.canvasSessionId;
   }
 
   // Apply read-only mode for completed/voided sessions
@@ -3762,7 +1943,7 @@ function handleSessionEvent(data, triggerMsg) {
 }
 
 // ─── Canvas command ───────────────────────────────────────────────────────────
-let canvasSessionId = null;  // world-entitir session_id, for direct tool calls
+let canvasSessionId = null;  // active canvas app session id
 
 function handleCanvasCommand(cmd) {
   console.log('[CANVAS CMD]', JSON.stringify(cmd));
@@ -3777,29 +1958,45 @@ function handleCanvasCommand(cmd) {
     return;
   }
 
-  // Route to widget-specific handler
-  if (widget_type === 'memory-manager') {
-    handleMemoryManagerCommand(action, props, cmd);
-    return;
-  }
-
-  // entity-graph 现在包含三 Tab（Ontology / Decisions / Actions）
-  if (widget_type && widget_type !== 'entity-graph') return;
-  const isDesigner = true;  // entity-graph 始终是 world designer
+  const targetWidgetType = widget_type || activeWidgetType;
+  if (!targetWidgetType) return;
+  const targetManifest = _widgetManifests[targetWidgetType] || {};
+  const targetIsPlanD = !!(targetManifest.render && targetManifest.render.url);
 
   // store design session_id for inline editing
   if (cmd.session_id && cmd.session_id !== canvasSessionId) {
     canvasSessionId = cmd.session_id;
     OutlineLang.invalidateTypeMap();
-    OutlineLang.loadTypeMap(window._typeMapUrl?.() || "/api/outline/types");
+    OutlineLang.loadTypeMap(canvasSessionId ? appProxyUrlForWidget(targetWidgetType, `/api/schema-types?session_id=${encodeURIComponent(canvasSessionId)}`) : null);
     window.loadGraphLayout?.(canvasSessionId);
     window.loadDecisionGraphLayout?.(canvasSessionId);
-    startRuntimeEventFeed(canvasSessionId, cmd.session_name || props?.session_name || sessionData[currentSessionId]?.name);
   }
 
-  // entity-graph patch for decisions/actions tab
-  if (isDesigner && action === 'patch' && props && props.tab) {
+  // Widget-owned tab/list patch payloads are delegated back to the mounted widget
+  // when it has registered a handler.
+  if (action === 'patch' && props && props.tab) {
     window.handleDesignerTabPatch?.(props);
+    return;
+  }
+
+  const hasGraphPayload = !!(props && (Array.isArray(props.nodes) || Array.isArray(props.edges)));
+  if (targetIsPlanD && !hasGraphPayload) {
+    const widgetData = Object.assign({}, props || {}, cmd.data || {}, {
+      canvasSessionId: cmd.session_id || canvasSessionId || undefined,
+      sessionName: cmd.session_name || props?.session_name,
+    });
+    if (sessionData[currentSessionId]) {
+      sessionData[currentSessionId].canvasMode = action !== 'close';
+      sessionData[currentSessionId].widgetType = targetWidgetType;
+      if (cmd.session_id) sessionData[currentSessionId].canvasSessionId = cmd.session_id;
+      if (props && props.memories) sessionData[currentSessionId].memoryState = props.memories;
+    }
+    if (action === 'close') exitToMainSession();
+    else if (!isCanvasMode || activeWidgetType !== targetWidgetType) {
+      enterCanvasMode(cmd.session_name || props?.session_name || targetWidgetType, targetWidgetType, widgetData);
+    } else {
+      mountAippWidget(_ensureAippCanvasMount(), targetWidgetType, widgetData);
+    }
     return;
   }
 
@@ -3808,14 +2005,14 @@ function handleCanvasCommand(cmd) {
     window.entityGraphSetGraphState?.(graphState);
     if (sessionData[currentSessionId]) {
       sessionData[currentSessionId].canvasMode     = true;
-      sessionData[currentSessionId].widgetType     = widget_type || 'entity-graph';
+      sessionData[currentSessionId].widgetType     = targetWidgetType;
       sessionData[currentSessionId].graphState     = { ...graphState };
       if (cmd.session_id) sessionData[currentSessionId].canvasSessionId = cmd.session_id;
     }
-    enterCanvasMode(cmd.session_name || props.session_name || 'Entity Graph', widget_type || 'entity-graph');
+    enterCanvasMode(cmd.session_name || props.session_name || targetWidgetType, targetWidgetType, { graphState });
     // Defer renderGraph so the container has real layout dimensions
     requestAnimationFrame(() => window.renderGraph?.());
-    if (isDesigner) { window.loadDesignerTabData?.(); window.refreshPipelineStatus?.(); }
+    window.loadDesignerTabData?.(); window.refreshPipelineStatus?.();
   } else if (action === 'patch') {
     const nm = {}; graphState.nodes.forEach(n => nm[n.id] = n);
     (props.nodes||[]).forEach(n => nm[n.id] = n);
@@ -3850,40 +2047,13 @@ function handleCanvasCommand(cmd) {
     if (sess) sess.graphState = { ...graphState };
     if (!isCanvasMode) {
       if (sess) sess.canvasMode = true;
-      enterCanvasMode(cmd.session_name || props?.session_name || sessionData[currentSessionId]?.name || 'Entity Graph', widget_type || 'entity-graph');
+      enterCanvasMode(cmd.session_name || props?.session_name || sessionData[currentSessionId]?.name || targetWidgetType, targetWidgetType, { graphState });
     }
     requestAnimationFrame(() => window.renderGraph?.());
     if (window._currentOntologyView === 'schema') window.loadSchemaEditor?.();
-    if (isDesigner) { window.loadDesignerTabData?.(); window.refreshPipelineStatus?.(); }
+    window.loadDesignerTabData?.(); window.refreshPipelineStatus?.();
   } else if (action === 'close') {
     exitToMainSession();
-  }
-}
-
-// ─── Memory Manager (Plan-D dispatch only) ─────────────────────────────────
-// Full UI lives in memory-one AIPP (/widgets/memory-manager/memory-manager.js).
-// Host's only job is to mount the AIPP widget and pass through the canvas
-// command's initial data. memProxyTool kept as a generic /api/proxy/tools/*
-// helper for sys.* modal handlers (not memory-specific despite the name).
-function handleMemoryManagerCommand(action, props, cmd) {
-  const memories = (props && props.memories) ? props.memories : [];
-  const sessionName = (props && props.session_name) ? props.session_name : '记忆管理';
-
-  if (sessionData[currentSessionId]) {
-    sessionData[currentSessionId].canvasMode  = true;
-    sessionData[currentSessionId].widgetType  = 'memory-manager';
-    sessionData[currentSessionId].memoryState = memories;
-  }
-
-  if (!isCanvasMode) {
-    enterCanvasMode(sessionName, 'memory-manager', { memories });
-  } else if (activeWidgetType !== 'memory-manager') {
-    activeWidgetType = 'memory-manager';
-    document.body.classList.add('aipp-canvas-mode');
-    mountAippWidget(_ensureAippCanvasMount(), 'memory-manager', { memories, worldName: sessionName });
-    if (sessionName) document.getElementById('side-title').textContent = sessionName;
-  } else if (action === 'open' || action === 'replace') {
-    mountAippWidget(_ensureAippCanvasMount(), 'memory-manager', { memories, worldName: sessionName });
   }
 }
 
@@ -4578,22 +2748,15 @@ function buildSessionItem(s, canRestore) {
     }
   }
 
-  const runtimeStatus = s.runtimeMeta?.taskStatus ? String(s.runtimeMeta.taskStatus).toLowerCase() : '';
-  const runtimeBadge = _runtimeTaskStatusLabel(runtimeStatus);
   const canRename = s.id !== 'main' && !archived;
   div.innerHTML = `<span class="session-icon">${icon}</span>
     <span class="session-label"${canRename ? ` ondblclick="beginRenameSession('${s.id}',event)"` : ''}>${esc(s.name)}</span>
-    ${runtimeBadge ? `<span class="session-badge ${runtimeStatus}">${esc(runtimeBadge)}</span>` : ''}
     ${actions}`;
 
   // All sessions are clickable (archived sessions open in read-only mode)
   div.onclick = async (e) => {
     if (e.target.closest('.session-actions, .sess-act')) return;
     if (e.target.closest('.session-label-editing')) return;
-    if (s.type === 'task' && s.runtimeMeta) {
-      await openRuntimeTaskSession(s.id);
-      return;
-    }
     switchSession(s.id);
   };
   return div;
@@ -4678,7 +2841,7 @@ async function saveSessionRename(id, newName) {
   const worldId = sessionData[id]?.canvasSessionId;
   if (worldId) {
     try {
-      await fetch(`/api/proxy/app/world-entitir/api/worlds/${encodeURIComponent(worldId)}/rename`, {
+      await fetch(appProxyUrlForWidget(activeWidgetType, `/api/worlds/${encodeURIComponent(worldId)}/rename`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName }),
@@ -4692,12 +2855,12 @@ async function saveSessionRename(id, newName) {
 /** 计算 canvas 模式的 side-title 完整文本（含 · sessionId 后缀）。 */
 function _canvasSideTitle(name) {
   if (!name) return '';
-  return (activeWidgetType === 'entity-graph' && canvasSessionId)
+  return (activeWidgetType && canvasSessionId)
     ? `${name} · ${canvasSessionId}`
     : name;
 }
 
-/** 双击 canvas 模式的 side-title 重命名当前 world session。 */
+/** 双击 canvas 模式的 side-title 重命名当前 canvas session。 */
 function beginRenameWorldTitle(ev) {
   if (ev) ev.stopPropagation();
   if (!currentSessionId || currentSessionId === 'main') return;
@@ -4970,18 +3133,14 @@ function closeSysModal(confirmed, value, choiceOption) {
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  const isDisplayed = (id) => {
-    const el = document.getElementById(id);
-    return !!el && getComputedStyle(el).display !== 'none';
-  };
-  if (isDisplayed('action-editor-overlay')) {
+  if (typeof window.closeActionEditor === 'function') {
     e.preventDefault();
-    window.closeActionEditor?.();
+    window.closeActionEditor();
     return;
   }
-  if (isDisplayed('de-overlay')) {
+  if (typeof window.closeDecisionEditor === 'function') {
     e.preventDefault();
-    window.closeDecisionEditor?.();
+    window.closeDecisionEditor();
     return;
   }
   const sysOverlay = document.getElementById('sys-modal-overlay');
@@ -5218,17 +3377,19 @@ let _lastHtmlWidgetEl = null;
 
 /** 给 widget 提供的 host 能力。最小集，按需扩展。 */
 function makeHostApi({ widgetType, mountEl }) {
+  const manifest = _widgetManifests[widgetType] || {};
+  const appId = manifest.app_id || _currentAppId || '';
   return {
     /** 直接调用某 tool（绕开 LLM），等价于现状的 postMessage {type:'action'}。 */
     callTool(name, args) {
-      const appId = _currentAppId || 'world';
+      const targetAppId = appId || _currentAppId;
       // 复用现有 session-切换 + openAppDirect 逻辑
       let existingUiSessionId = null;
       if (args && args.session_id) {
         const found = Object.values(sessionData).find(s => s.canvasSessionId === args.session_id);
         if (found) existingUiSessionId = found.id;
       }
-      return openAppDirect(appId, name, args || {}, existingUiSessionId);
+      return openAppDirect(targetAppId, name, args || {}, existingUiSessionId);
     },
     /** 直接 POST tool 到 AIPP（经 host /api/proxy 转发），返回 JSON。不触发任何 UI 转换。 */
     async proxyTool(name, args) {
@@ -5240,6 +3401,12 @@ function makeHostApi({ widgetType, mountEl }) {
       return r.json();
     },
     widgetType,
+    appId,
+    appBaseUrl: manifest.app_base_url || '',
+    appProxyUrl(path) {
+      const suffix = String(path || '').startsWith('/') ? path : '/' + path;
+      return appId ? `/api/proxy/app/${encodeURIComponent(appId)}${suffix}` : suffix;
+    },
     mountEl,
     sessionId: currentSessionId,
   };
@@ -5256,7 +3423,7 @@ function _resolveWidgetUrl(manifest) {
 
 /**
  * 确保 canvas-area 内有 Plan-D 通用挂载容器；返回该 element。
- * 不影响现有 #graph-scroll / #memory-panel —— 由 body.aipp-canvas-mode 隐藏它们。
+ * Creates the generic Plan-D mount target inside .canvas-area.
  */
 function _ensureAippCanvasMount() {
   let el = document.getElementById('aipp-canvas-mount');
@@ -5694,7 +3861,8 @@ function resolveRuntimeEnvFromEnvVars(envVars) {
 }
 
 function applyRuntimeEnvFromSettings(envVars) {
-  RUNTIME_ENV = resolveRuntimeEnvFromEnvVars(envVars);
+  // Retained for settings compatibility; runtime execution is owned by widgets/apps.
+  window.RUNTIME_ENV = resolveRuntimeEnvFromEnvVars(envVars);
 }
 
 function showTestResult(ok, msg) {
@@ -5735,7 +3903,7 @@ let _widgetManifests = {};
   } catch(e) {}
 
   await loadSessions();
-  // initDesignerSplitResizers() now lives in entity-graph widget; widget mount() invokes it.
+  // Widget modules perform their own mount-time initialization.
 
   // Load and restore history for the current session (main) on startup.
   // switchSession short-circuits when target === current, so we do it here.
