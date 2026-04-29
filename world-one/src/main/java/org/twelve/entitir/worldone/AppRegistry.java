@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -63,6 +64,8 @@ public class AppRegistry {
     private final Map<String, Boolean> appOnlineIndex = new ConcurrentHashMap<>();
     /** appId → 最近一次在线探测时间戳。 */
     private final Map<String, Long> appOnlineCheckedAtMs = new ConcurrentHashMap<>();
+    /** appId currently being probed in the background. */
+    private final Set<String> appOnlineProbeInFlight = ConcurrentHashMap.newKeySet();
     /** 在线探测最小间隔，避免每次列表请求都触发网络探测。 */
     private static final long APP_ONLINE_CHECK_INTERVAL_MS = 3000L;
 
@@ -1588,7 +1591,7 @@ public class AppRegistry {
         }
     }
 
-    /** 返回 app 当前在线状态（按固定间隔探测 /api/tools）。 */
+    /** 返回 app 最近一次在线状态；探测过期时异步刷新，避免应用列表首开被网络 I/O 阻塞。 */
     private boolean isAppOnline(AppRegistration reg) {
         String appId = reg.appId();
         long now = System.currentTimeMillis();
@@ -1596,19 +1599,29 @@ public class AppRegistry {
         if (lastChecked != null && now - lastChecked < APP_ONLINE_CHECK_INTERVAL_MS) {
             return appOnlineIndex.getOrDefault(appId, true);
         }
-        boolean online;
-        try {
-            get(reg.baseUrl() + "/api/tools");
-            online = true;
-            appLoadErrorIndex.remove(appId);
-        } catch (Exception e) {
-            online = false;
-            String err = e.getMessage();
-            if (err == null || err.isBlank()) err = e.getClass().getSimpleName();
-            appLoadErrorIndex.put(appId, err);
-        }
-        appOnlineIndex.put(appId, online);
-        appOnlineCheckedAtMs.put(appId, now);
-        return online;
+        triggerAppOnlineProbe(reg, now);
+        return appOnlineIndex.getOrDefault(appId, true);
+    }
+
+    private void triggerAppOnlineProbe(AppRegistration reg, long requestedAtMs) {
+        String appId = reg.appId();
+        if (!appOnlineProbeInFlight.add(appId)) return;
+        CompletableFuture.runAsync(() -> {
+            boolean online;
+            try {
+                get(reg.baseUrl() + "/api/tools");
+                online = true;
+                appLoadErrorIndex.remove(appId);
+            } catch (Exception e) {
+                online = false;
+                String err = e.getMessage();
+                if (err == null || err.isBlank()) err = e.getClass().getSimpleName();
+                appLoadErrorIndex.put(appId, err);
+            } finally {
+                appOnlineProbeInFlight.remove(appId);
+            }
+            appOnlineIndex.put(appId, online);
+            appOnlineCheckedAtMs.put(appId, requestedAtMs);
+        });
     }
 }

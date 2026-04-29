@@ -3113,6 +3113,7 @@ async function handleSysWidgetCommand(widgetType, data) {
 // ── Apps Panel ─────────────────────────────────────────────────────────────
 
 let _appsLoaded = false;
+let _appsPreloadStarted = false;
 
 async function toggleAppsPanel() {
   const panel = document.getElementById('apps-panel');
@@ -3153,8 +3154,17 @@ document.addEventListener('click', function(e) {
 }, true);
 
 async function loadApps() {
-  document.getElementById('apps-iframe').src = '/api/system/widgets/app-list';
+  const iframe = document.getElementById('apps-iframe');
+  if (iframe && !iframe.src) iframe.src = '/api/system/widgets/app-list';
   _appsLoaded = true;
+}
+
+function preloadAppsPanelSoon() {
+  if (_appsPreloadStarted) return;
+  _appsPreloadStarted = true;
+  const run = () => loadApps().catch(() => { _appsLoaded = false; _appsPreloadStarted = false; });
+  if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 1200 });
+  else setTimeout(run, 250);
 }
 
 function scrollToBottom() {
@@ -3820,6 +3830,7 @@ let _widgetManifests = {};
       if (w.type) _widgetManifests[w.type] = w;
     });
     preloadCanvasWidgetsSoon();
+    preloadAppsPanelSoon();
   } catch(e) {}
 
   await loadSessions();
