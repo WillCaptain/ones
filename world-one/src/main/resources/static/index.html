@@ -3389,6 +3389,7 @@ function preloadCanvasWidgetsSoon() {
 async function mountAippWidget(targetEl, widgetType, data) {
   const manifest = _widgetManifests[widgetType];
   const url = _resolveWidgetUrl(manifest);
+  console.log('[AIPP_ROUTE] step=widget_mount_start widget=%s url=%s data=', widgetType, url, data);
   if (!url) {
     targetEl.innerHTML = `<div style="color:#f88;font:13px monospace;padding:12px">`
       + `widget "${widgetType}" missing render.url in manifest</div>`;
@@ -3409,6 +3410,7 @@ async function mountAippWidget(targetEl, widgetType, data) {
     const api = makeHostApi({ widgetType, mountEl: targetEl });
     mod.mount(targetEl, api, data);
     targetEl._aippWidgetMod = mod;
+    console.log('[AIPP_ROUTE] step=widget_mount_done widget=%s url=%s', widgetType, url);
   } catch (e) {
     console.error('[mountAippWidget] failed', widgetType, url, e);
     targetEl.innerHTML = `<div style="color:#f88;font:13px monospace;padding:12px">`
@@ -3421,6 +3423,7 @@ function renderHtmlWidget(json, containerMsgEl) {
   try { data = typeof json === 'string' ? JSON.parse(json) : json; } catch(e) { return; }
 
   if (data && data.widget_type) {
+    console.log('[AIPP_ROUTE] step=html_widget_received widget=%s title=%s data=', data.widget_type, data.title || '', data.data || {});
     return _renderAippWidgetMessage(data, containerMsgEl);
   }
 

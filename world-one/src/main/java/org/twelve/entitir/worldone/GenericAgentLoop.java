@@ -1178,22 +1178,33 @@ public final class GenericAgentLoop {
         String routerToolsJson = buildToolsJson(routerTools);
 
         boolean mainSession = isMainSession();
+        String routeLayer = mainSession
+                ? (currentTurnAippAppId == null || currentTurnAippAppId.isBlank()
+                    ? "root-aipp-router" : "app-skill-router")
+                : "widget-skill-router";
         String routerSystem = buildRouterSystemPrompt(mainSession, catalog, universalTools);
         List<Map<String, Object>> routerCtx = List.of(
                 Map.of("role", "system", "content", routerSystem),
                 Map.of("role", "user",   "content", userMessage)
         );
 
+        List<String> catalogNamesForLog = new ArrayList<>();
+        for (SkillDefinition s : catalog) catalogNamesForLog.add(s.name());
+        List<String> universalNamesForLog = new ArrayList<>();
+        for (Map<String, Object> t : universalTools) {
+            Object n = t.get("name");
+            if (n != null) universalNamesForLog.add(n.toString());
+        }
+        log.info("[AIPP_ROUTE] step=router_start layer={} selected_app={} catalog={} universal_tools={} user={}",
+                routeLayer,
+                currentTurnAippAppId == null ? "" : currentTurnAippAppId,
+                catalogNamesForLog,
+                universalNamesForLog,
+                shorten(userMessage, 160));
+
         if (dbgOn()) {
-            List<String> catalogNames = new ArrayList<>();
-            for (SkillDefinition s : catalog) catalogNames.add(s.name());
-            List<String> universalNames = new ArrayList<>();
-            for (Map<String, Object> t : universalTools) {
-                Object n = t.get("name");
-                if (n != null) universalNames.add(n.toString());
-            }
             dbg("ROUTER session_type={} catalog={} universal_tools={}",
-                    mainSession ? "main" : "aipp", catalogNames, universalNames);
+                    mainSession ? "main" : "aipp", catalogNamesForLog, universalNamesForLog);
         }
 
         long t0 = System.currentTimeMillis();
@@ -1224,6 +1235,8 @@ public final class GenericAgentLoop {
 
         LLMCaller.ToolCall tc = calls.get(0);
         String name = tc.name();
+        log.info("[AIPP_ROUTE] step=router_decision layer={} tool={} args={} latency_ms={}",
+                routeLayer, name, shorten(tc.arguments(), 240), elapsed);
 
         if (LOAD_SKILL_TOOL.equals(name)) {
             String previousAipp = currentTurnAippAppId;
@@ -1232,9 +1245,15 @@ public final class GenericAgentLoop {
             dbg("ROUTER decision=load_skill args={} loaded={} latency={}ms",
                     shorten(tc.arguments(), 200), loaded, elapsed);
             if (loaded) {
+                log.info("[AIPP_ROUTE] step=skill_selected app={} skill={} allowed_tools={}",
+                        currentTurnSkillRun.skill().appId(),
+                        currentTurnSkillRun.skill().name(),
+                        currentTurnSkillRun.skill().allowedTools());
                 emit.accept(ChatEvent.annotation(
                         "{\"label\":\"Router: Skill→" + escapeJson(currentTurnSkillRun.skill().name()) + "\"}"));
             } else if (currentTurnAippAppId != null && !Objects.equals(previousAipp, currentTurnAippAppId)) {
+                log.info("[AIPP_ROUTE] step=aipp_selected app={} display_name={}",
+                        currentTurnAippAppId, registry.appDisplayName(currentTurnAippAppId));
                 emit.accept(ChatEvent.annotation(
                         "{\"label\":\"Router: AIPP→" + escapeJson(registry.appDisplayName(currentTurnAippAppId)) + "\"}"));
             } else {
@@ -1248,8 +1267,11 @@ public final class GenericAgentLoop {
             dbg("ROUTER decision=no_skill_matches latency={}ms", elapsed);
             if (isMainSession() && (currentTurnAippAppId == null || currentTurnAippAppId.isBlank())) {
                 currentTurnNoAippMatch = true;
+                log.info("[AIPP_ROUTE] step=no_aipp_match fallback=host_tools");
                 emit.accept(ChatEvent.annotation("{\"label\":\"Router: no AIPP match → host mode\"}"));
             } else {
+                log.info("[AIPP_ROUTE] step=no_app_skill_match app={} fallback=app_tools",
+                        currentTurnAippAppId == null ? "" : currentTurnAippAppId);
                 emit.accept(ChatEvent.annotation("{\"label\":\"Router: no skill match → app tools\"}"));
             }
             return false;
@@ -1342,11 +1364,17 @@ public final class GenericAgentLoop {
 
     private String mergeCanvasTools(List<Map<String, Object>> baseSkills) {
         if (isMainSession() && currentTurnNoAippMatch) {
-            return buildToolsJson(registry.skillsAsToolsForApp("worldone-system"));
+            List<Map<String, Object>> scoped = registry.skillsAsToolsForApp("worldone-system");
+            log.info("[AIPP_ROUTE] step=executor_tools scope=host app=worldone-system tools={}",
+                    toolNames(scoped));
+            return buildToolsJson(scoped);
         }
         if (isMainSession() && currentTurnAippAppId != null && !currentTurnAippAppId.isBlank()
                 && currentTurnSkillRun == null) {
-            return buildToolsJson(registry.skillsAsToolsForApp(currentTurnAippAppId));
+            List<Map<String, Object>> scoped = registry.skillsAsToolsForApp(currentTurnAippAppId);
+            log.info("[AIPP_ROUTE] step=executor_tools scope=aipp app={} tools={}",
+                    currentTurnAippAppId, toolNames(scoped));
+            return buildToolsJson(scoped);
         }
 
         // Skill Playbook 命中时，优先级最高：tools 严格收窄到 whitelist，
