@@ -8,7 +8,6 @@ import org.twelve.entitir.aip.LLMCaller;
 import org.twelve.entitir.aip.world.ChatEvent;
 import org.twelve.entitir.ontology.llm.LLMConfig;
 import org.twelve.entitir.worldone.skills.SkillDefinition;
-import org.twelve.entitir.worldone.skills.SkillRegistry;
 import org.twelve.entitir.worldone.skills.SkillRun;
 
 import java.net.URI;
@@ -25,7 +24,7 @@ import java.util.function.Consumer;
  * <h2>职责</h2>
  * <ul>
  *   <li>持有对话历史</li>
- *   <li>从 {@link AppRegistry} 读取工具定义（跨所有已注册 app）</li>
+ *   <li>从 {@link AippRegistry} 读取工具定义（跨所有已注册 app）</li>
  *   <li>通过 LLM 决策调用哪个工具</li>
  *   <li>将工具调用 HTTP 路由到正确的 app（POST app/api/tools/{name}）</li>
  *   <li>透传工具结果中的 canvas 字段为 ChatEvent#canvas</li>
@@ -60,9 +59,7 @@ public final class GenericAgentLoop {
     private final String         sessionId;
     private final String         userId;
     private final LLMCaller      llm;
-    private final AppRegistry    registry;
-    /** Anthropic-style progressive disclosure：catalog 注入 + load_skill meta-tool 拦截的数据源。 */
-    private final SkillRegistry  skillRegistry;
+    private final AippRegistry   registry;
     /** 运行时调试开关（{@code worldone.debug.agent_loop}）；关闭时所有 dbg() 近乎零开销。 */
     private final DebugFlags     debugFlags;
     /** 完整对话历史（第 0 条永远是 system prompt）。 */
@@ -107,27 +104,21 @@ public final class GenericAgentLoop {
         .connectTimeout(Duration.ofSeconds(30))
         .build();
 
-    public GenericAgentLoop(String sessionId, LLMConfig config, AppRegistry registry) {
-        this(sessionId, "default", config, registry, null, null);
+    public GenericAgentLoop(String sessionId, LLMConfig config, AippRegistry registry) {
+        this(sessionId, "default", config, registry, null);
     }
 
-    public GenericAgentLoop(String sessionId, String userId, LLMConfig config, AppRegistry registry) {
-        this(sessionId, userId, config, registry, null, null);
-    }
-
-    public GenericAgentLoop(String sessionId, String userId, LLMConfig config,
-                            AppRegistry registry, SkillRegistry skillRegistry) {
-        this(sessionId, userId, config, registry, skillRegistry, null);
+    public GenericAgentLoop(String sessionId, String userId, LLMConfig config, AippRegistry registry) {
+        this(sessionId, userId, config, registry, null);
     }
 
     public GenericAgentLoop(String sessionId, String userId, LLMConfig config,
-                            AppRegistry registry, SkillRegistry skillRegistry,
+                            AippRegistry registry,
                             DebugFlags debugFlags) {
         this.sessionId     = sessionId;
         this.userId        = userId;
         this.llm           = new LLMCaller(config);
         this.registry      = registry;
-        this.skillRegistry = skillRegistry;
         this.debugFlags    = debugFlags;
         history.add(Map.of("role", "system", "content", registry.aggregatedSystemPrompt()));
     }
@@ -1009,14 +1000,13 @@ public final class GenericAgentLoop {
 
     /** 当前 UI 位置对主 LLM 可见的 skill catalog。空 registry 时返回空列表。 */
     private List<SkillDefinition> currentVisibleSkills() {
-        if (skillRegistry == null) return List.of();
         if (isMainSession()) {
             if (currentTurnAippAppId == null || currentTurnAippAppId.isBlank()) {
-                return skillRegistry.appEntrySkills();
+                return registry.appEntrySkills();
             }
-            return skillRegistry.visibleSkills(null, null, Set.of(currentTurnAippAppId));
+            return registry.visibleSkills(null, null, Set.of(currentTurnAippAppId));
         }
-        return skillRegistry.visibleSkills(activeWidgetType, activeView, Set.of());
+        return registry.visibleSkills(activeWidgetType, activeView, Set.of());
     }
 
     /**
@@ -1324,9 +1314,6 @@ public final class GenericAgentLoop {
      * @return tool_result content（JSON 字符串，仅供调试/错误日志）
      */
     private String handleLoadSkillCall(LLMCaller.ToolCall tc) {
-        if (skillRegistry == null) {
-            return "{\"error\":\"skills registry not available\"}";
-        }
         String skillName;
         try {
             JsonNode args = JSON.readTree(tc.arguments() == null ? "{}" : tc.arguments());
@@ -1345,14 +1332,14 @@ public final class GenericAgentLoop {
             return "{\"error\":\"skill not available at current location: "
                     + escapeJson(skillName) + "\"}";
         }
-        if (org.twelve.entitir.worldone.skills.SkillRegistry.AIPP_ENTRY_PLAYBOOK.equals(matched.playbookUrl())) {
+        if (AippRegistry.AIPP_ENTRY_PLAYBOOK.equals(matched.playbookUrl())) {
             this.currentTurnAippAppId = matched.appId();
             this.currentTurnNoAippMatch = false;
             log.info("[SkillRouter] selected AIPP app={} via entry skill={}",
                     matched.appId(), matched.name());
             return "{\"status\":\"selected_aipp\",\"app_id\":\"" + escapeJson(matched.appId()) + "\"}";
         }
-        String playbook = skillRegistry.loadPlaybook(matched);
+        String playbook = registry.loadSkillPlaybook(matched);
         if (playbook == null || playbook.isBlank()) {
             return "{\"error\":\"playbook empty or not found for skill " + escapeJson(skillName) + "\"}";
         }

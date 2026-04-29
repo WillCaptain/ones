@@ -20,7 +20,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Skill 索引中心 — progressive disclosure 的注册侧。
+ * AIPP Skill catalog — progressive disclosure 的内部索引。
  *
  * <p>启动时（以及运行期惰性补刷）对每个已注册 AIPP 应用尝试拉取 {@code /api/skills}
  * （Phase 4 之后该端点专门承载 Skill Playbook 索引）；端点不存在 / 返回空数组则
@@ -32,9 +32,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 主 LLM 通过 {@code load_skill} meta-tool 激活），本类不做关键词匹配也不维护独立 Loop A。
  */
 @Component
-public class SkillRegistry {
+public class AippSkillCatalog {
 
-    private static final Logger log = LoggerFactory.getLogger(SkillRegistry.class);
+    private static final Logger log = LoggerFactory.getLogger(AippSkillCatalog.class);
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @Autowired private AppRegistry apps;
@@ -63,10 +63,10 @@ public class SkillRegistry {
             String body = httpGet(app.baseUrl() + "/api/skills");
             List<SkillDefinition> defs = parseIndex(appId, body);
             indexByApp.put(appId, defs);
-            log.info("[SkillRegistry] loaded {} skills for app={}", defs.size(), appId);
+            log.info("[AippSkillCatalog] loaded {} skills for app={}", defs.size(), appId);
         } catch (Exception e) {
             indexByApp.remove(appId);
-            log.debug("[SkillRegistry] no skill index for app={}: {}", appId, e.getMessage());
+            log.debug("[AippSkillCatalog] no skill index for app={}: {}", appId, e.getMessage());
         }
     }
 
@@ -165,7 +165,7 @@ public class SkillRegistry {
         }
         if (app.promptContributions() != null) {
             app.promptContributions().stream()
-                    .map(SkillRegistry::contributionContent)
+                    .map(AippSkillCatalog::contributionContent)
                     .filter(s -> s != null && !s.isBlank())
                     .map(String::strip)
                     .forEach(parts::add);
@@ -266,7 +266,7 @@ public class SkillRegistry {
             playbookCache.put(cacheKey, body);
             return body;
         } catch (Exception e) {
-            log.warn("[SkillRegistry] failed to load playbook {}: {}", url, e.getMessage());
+            log.warn("[AippSkillCatalog] failed to load playbook {}: {}", url, e.getMessage());
             return "";
         }
     }
