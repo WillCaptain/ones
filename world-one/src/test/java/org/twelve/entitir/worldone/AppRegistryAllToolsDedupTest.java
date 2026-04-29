@@ -9,14 +9,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 验证 {@link AppRegistry#allSkillsAsTools()} 对跨 app / 跨 scope 同名工具做去重，
+ * 验证 {@link AppRegistry#allTools()} 对跨 app / 跨 scope 同名工具做去重，
  * 且过滤掉 {@code visibility} 不含 {@code "llm"} 的条目，避免触发 LLM 的
  * "Tool names must be unique" 400 错误。
  *
  * <p>语义优先级：{@code scope.level=app} 的副本优先于 {@code widget} 副本；
  * 同级别下 {@code visible_when=always} 优先。
  */
-class AppRegistryAllSkillsDedupTest {
+class AppRegistryAllToolsDedupTest {
 
     @Test
     void deduplicatesSameNameAndFiltersNonLlmVisibility() throws Exception {
@@ -63,7 +63,7 @@ class AppRegistryAllSkillsDedupTest {
         AppRegistration memoryOne = new AppRegistration(
             "memory-one", "memory-one", "http://x", "",
             List.of(),  // promptContributions
-            List.of(appLevelLlm, widgetLevelLlm, appLevelHost, widgetLevelUi),  // skills
+            List.of(appLevelLlm, widgetLevelLlm, appLevelHost, widgetLevelUi),  // tools
             List.of()   // widgets
         );
         AppRegistration world = new AppRegistration(
@@ -72,7 +72,7 @@ class AppRegistryAllSkillsDedupTest {
         );
         injectRegistry(reg, Map.of("memory-one", memoryOne, "world", world));
 
-        List<Map<String, Object>> tools = reg.allSkillsAsTools();
+        List<Map<String, Object>> tools = reg.allTools();
 
         // 1) LLM 看到的 tool 名称必须唯一
         List<String> names = tools.stream().map(t -> t.get("name").toString()).toList();

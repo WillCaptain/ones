@@ -51,7 +51,17 @@ world-one 不预设“每个 app 只能 1 个”或“必须 N 个”。
 - memory-one 常见单实例（`app_id=memory-one`）
 - world-entitir 常见多实例（`app_id=world` + `session_id=HR|EAI|...`）
 
-> App Session 不进入 Task Panel；Task Panel 展示 task / event session。
+> App Session 不进入 Task Panel；Task Panel 展示 task / event session。若主对话中的 LLM 显式打开某个 app-owned widget，Host 会把这次入口归一为可见 task 行，并保留 `app_id` 做幂等复用；直接点击应用入口的 app session 仍不进入 Task Panel。
+
+### Task 创建不变量
+
+Task Panel 只展示真正独立的 task / event session。Host 在处理 widget/session 导航时必须遵守以下不变量：
+
+- **只有 main session 可以派生新 session**：当前活动 session 是 `main`，且工具响应明确声明 `session=new` / `new_session` 时，Host 才允许创建新的 task/app/event session。
+- **`session != new` 表示当前 session 内导航**：它不是“恢复已有 session”，也不能创建 task；Host 应在当前活动 session 内打开、替换或覆盖 widget 视图。
+- **非 main session 不允许嵌套派生**：如果当前已经在 task/app/event session 内，即使工具响应再次声明 `session=new` / `new_session`，Host 也必须降级为当前 session 内的 widget 打开/覆盖。
+- **Task id 必须幂等**：同一个固定 widget 入口多次打开时，应使用稳定的 canonical key（例如 `app_id + widget_type + normalized session_id`）命中已有 session；若已存在则复用并激活，不得在 Task Panel 追加重复条目。
+- **直接 app session 不进入 Task Panel**：直接点击应用入口时，例如 `memory-one` 的单实例管理台按 `app_id=memory-one` 复用 app session，不显示为 task。主对话中由 LLM 发起的 app-owned widget 入口可归一为 task 行，但必须保留 `app_id` 做幂等去重。
 
 ### Widget 激活态的上下文与能力裁剪（不是新 session）
 

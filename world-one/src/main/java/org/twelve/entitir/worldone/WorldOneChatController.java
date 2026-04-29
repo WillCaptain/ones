@@ -261,7 +261,9 @@ public class WorldOneChatController {
                         if (ev.type() == org.twelve.entitir.aip.world.ChatEvent.Type.TEXT) return;
                         try {
                             if (ev.type() == org.twelve.entitir.aip.world.ChatEvent.Type.SESSION) {
-                                toSend = enrichSessionEvent(ev);
+                                toSend = "main".equals(uiSessionId)
+                                        ? enrichSessionEvent(ev)
+                                        : currentSessionEvent(ev, currentUiId[0]);
                                 String newUiId = extractUiSessionId(toSend);
                                 if (newUiId != null) currentUiId[0] = newUiId;
                             } else if (ev.type() == org.twelve.entitir.aip.world.ChatEvent.Type.CANVAS) {
@@ -279,7 +281,9 @@ public class WorldOneChatController {
                         if (ev.type() == org.twelve.entitir.aip.world.ChatEvent.Type.TEXT) return;
                         try {
                             if (ev.type() == org.twelve.entitir.aip.world.ChatEvent.Type.SESSION) {
-                                toSend = enrichSessionEvent(ev);
+                                toSend = "main".equals(uiSessionId)
+                                        ? enrichSessionEvent(ev)
+                                        : currentSessionEvent(ev, currentUiId[0]);
                                 String newUiId = extractUiSessionId(toSend);
                                 if (newUiId != null) currentUiId[0] = newUiId;
                             } else if (ev.type() == org.twelve.entitir.aip.world.ChatEvent.Type.CANVAS) {
@@ -393,9 +397,12 @@ public class WorldOneChatController {
                             // 正常 forward 给前端，让前端渲染 iframe
 
                         } else if (event.type() == ChatEvent.Type.SESSION) {
-                            // Chat 流程：app 类型降级为 task，使 LLM 发起的 session 出现在 Task Panel。
-                            // openApp 流程保持 app 类型（见 openApp 方法中的回调）。
-                            toSend = enrichSessionEvent(downgradeAppToTask(event));
+                            // Only main can create or select a new UI session. Inside an
+                            // app/task/event session, a new-session intent is normalized to
+                            // current-session widget navigation.
+                            toSend = "main".equals(finalUiSessionId)
+                                    ? enrichSessionEvent(appSessionAsTask(event))
+                                    : currentSessionEvent(event, currentUiId[0]);
                             String newUiId = extractUiSessionId(toSend);
                             if (newUiId != null) currentUiId[0] = newUiId;
 
@@ -451,6 +458,12 @@ public class WorldOneChatController {
             if ("app".equals(type) && !appId.isBlank()) {
                 // app session：支持单实例/多实例。canvas_session_id 非空时按 (app_id, session_id) 路由
                 ui = uiStore.ensureApp(appId, name, canvasSessionId.isBlank() ? null : canvasSessionId);
+            } else if ("task".equals(type) && !appId.isBlank() && canvasSessionId.isBlank()) {
+                // Main-chat app entry shown in Task Panel, but still deduped by
+                // app_id so repeated "进入记忆管理" reuses the same row.
+                ui = uiStore.ensureApp(appId, name, null);
+                uiStore.updateType(ui.id(), "task");
+                ui = uiStore.find(ui.id());
             } else {
                 // find-or-create：若已有对应 canvas_session_id 的 UiSession，直接复用
                 UiSession existing = canvasSessionId.isBlank()
@@ -528,6 +541,48 @@ public class WorldOneChatController {
     }
 
     /**
+     * Non-main sessions cannot create nested sessions. Return a SESSION event
+     * that points the frontend back at the current UI session, allowing the
+     * following CANVAS event to open/replace the widget in-place without adding
+     * a Task Panel entry.
+     */
+    private ChatEvent currentSessionEvent(ChatEvent original, String currentUiSessionId) {
+        try {
+            UiSession ui = uiStore.find(currentUiSessionId);
+            JsonNode n = JSON.readTree(original.content());
+            String name = ui != null && ui.name() != null && !ui.name().isBlank()
+                    ? ui.name() : n.path("name").asText("当前任务");
+            String type = ui != null && ui.type() != null && !ui.type().isBlank()
+                    ? ui.type() : n.path("type").asText("task");
+            String payload = "{\"ui_session_id\":\"" + escapeJson(currentUiSessionId)
+                           + "\",\"name\":\"" + escapeJson(name)
+                           + "\",\"type\":\"" + escapeJson(type)
+                           + "\"}";
+            return ChatEvent.session(payload);
+        } catch (Exception ignored) {
+            return ChatEvent.session("{\"ui_session_id\":\"" + escapeJson(currentUiSessionId)
+                    + "\",\"name\":\"当前任务\",\"type\":\"task\"}");
+        }
+    }
+
+    /**
+     * Main chat treats an app-owned widget entry as a visible task row, while
+     * preserving app_id so {@link #enrichSessionEvent(ChatEvent)} can dedupe
+     * fixed app entries such as memory-one.
+     */
+    private ChatEvent appSessionAsTask(ChatEvent e) {
+        try {
+            JsonNode n = JSON.readTree(e.content());
+            if (!"app".equals(n.path("type").asText())) return e;
+            var copy = (com.fasterxml.jackson.databind.node.ObjectNode) n.deepCopy();
+            copy.put("type", "task");
+            return ChatEvent.session(JSON.writeValueAsString(copy));
+        } catch (Exception ignored) {
+            return e;
+        }
+    }
+
+    /**
      * 解析 CANVAS 事件，将 widgetType 和 canvasSessionId 持久化到 UiSession。
      *
      * <ul>
@@ -554,25 +609,6 @@ public class WorldOneChatController {
                 }
             }
         } catch (Exception ignored) { }
-    }
-
-    /**
-     * Chat 流程专用：将 SESSION 事件中的 type="app" 降级为 "task"，
-     * 移除 app_id，使 enrichSessionEvent 走 task 路径（按 canvas_session_id 查找/创建）。
-     * 这样 LLM 发起的 session 会出现在 Task Panel，
-     * 而 openApp 流程直接调用 enrichSessionEvent 保持 app 类型。
-     */
-    private ChatEvent downgradeAppToTask(ChatEvent e) {
-        try {
-            JsonNode n = JSON.readTree(e.content());
-            if (!"app".equals(n.path("type").asText())) return e;
-            var copy = (com.fasterxml.jackson.databind.node.ObjectNode) n.deepCopy();
-            copy.put("type", "task");
-            copy.remove("app_id");
-            return ChatEvent.session(JSON.writeValueAsString(copy));
-        } catch (Exception ignored) {
-            return e;
-        }
     }
 
     private static String escapeJson(String s) {
