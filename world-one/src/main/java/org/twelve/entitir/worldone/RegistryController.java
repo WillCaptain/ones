@@ -12,7 +12,7 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>GET  /api/registry          — 列出所有已注册 app</li>
  *   <li>POST /api/registry/install  — 安装新 app（传入 appId + baseUrl）</li>
- *   <li>GET  /api/registry/skills   — 返回所有 app 聚合后的 skills</li>
+ *   <li>GET  /api/registry/tools    — 返回所有 app 聚合后的 tools</li>
  *   <li>GET  /api/registry/widgets  — 返回所有 app 聚合后的 widgets</li>
  * </ul>
  */
@@ -30,7 +30,7 @@ public class RegistryController {
             m.put("id",          app.appId());
             m.put("name",        app.name());
             m.put("base_url",    app.baseUrl());
-            m.put("skill_count", app.skills().size());
+            m.put("tool_count", app.tools().size());
             m.put("widget_count",app.widgets().size());
             return m;
         }).collect(Collectors.toList());
@@ -52,10 +52,10 @@ public class RegistryController {
         }
     }
 
-    @GetMapping("/skills")
-    public Map<String, Object> skills() {
+    @GetMapping("/tools")
+    public Map<String, Object> tools() {
         return Map.of(
-            "skills",        registry.allSkillsAsTools(),
+            "tools",         registry.allTools(),
             "system_prompt", registry.aggregatedSystemPrompt()
         );
     }

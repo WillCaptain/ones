@@ -360,7 +360,7 @@ public final class GenericAgentLoop {
         // ── Host 自动预加载记忆上下文（auto_pre_turn skills，不经 LLM）──────────
         preLoadMemoryContext(userMessage);
 
-        List<Map<String, Object>> tools = new ArrayList<>(registry.allSkillsAsTools());
+        List<Map<String, Object>> tools = new ArrayList<>(registry.allTools());
         if (dbgOn()) {
             dbg("base_tools(count={})={}", tools.size(), toolNames(tools));
         }
@@ -1163,11 +1163,11 @@ public final class GenericAgentLoop {
             int turnStart) {
         List<SkillDefinition> catalog = currentVisibleSkills();
         if (catalog.isEmpty()) {
-            dbg("ROUTER SKIPPED (no visible skills)", (Object[]) new Object[0]);
+            dbg("ROUTER SKIPPED (no visible tools)", (Object[]) new Object[0]);
             return false;
         }
 
-        List<Map<String, Object>> allBaseTools = registry.allSkillsAsTools();
+        List<Map<String, Object>> allBaseTools = registry.allTools();
         List<Map<String, Object>> universalTools = universalLlmToolsForRouter(allBaseTools);
 
         // 组装 Router tool list：load_skill + no_skill_matches + (main session) universal tools
@@ -1364,14 +1364,14 @@ public final class GenericAgentLoop {
 
     private String mergeCanvasTools(List<Map<String, Object>> baseSkills) {
         if (isMainSession() && currentTurnNoAippMatch) {
-            List<Map<String, Object>> scoped = registry.skillsAsToolsForApp("worldone-system");
+            List<Map<String, Object>> scoped = registry.toolsForApp("worldone-system");
             log.info("[AIPP_ROUTE] step=executor_tools scope=host app=worldone-system tools={}",
                     toolNames(scoped));
             return buildToolsJson(scoped);
         }
         if (isMainSession() && currentTurnAippAppId != null && !currentTurnAippAppId.isBlank()
                 && currentTurnSkillRun == null) {
-            List<Map<String, Object>> scoped = registry.skillsAsToolsForApp(currentTurnAippAppId);
+            List<Map<String, Object>> scoped = registry.toolsForApp(currentTurnAippAppId);
             log.info("[AIPP_ROUTE] step=executor_tools scope=aipp app={} tools={}",
                     currentTurnAippAppId, toolNames(scoped));
             return buildToolsJson(scoped);
@@ -1424,13 +1424,13 @@ public final class GenericAgentLoop {
      * <p>{@code widget.canvas_skill.tools}（设计态工具）不在本方法范围内——
      * 由 {@link #mergeCanvasTools} 在之后合并，永不被 scope 过滤。
      */
-    private List<Map<String, Object>> applyWidgetScope(List<Map<String, Object>> skills) {
-        if (activeWidgetType == null || activeWidgetType.isBlank()) return skills;
+    private List<Map<String, Object>> applyWidgetScope(List<Map<String, Object>> tools) {
+        if (activeWidgetType == null || activeWidgetType.isBlank()) return tools;
 
         Map<String, Object> wScope = registry.getWidgetScope(activeWidgetType);
         Map<String, Object> vScope = (activeView == null)
                 ? null : registry.getWidgetViewScope(activeWidgetType, activeView);
-        if (wScope == null && vScope == null) return skills;
+        if (wScope == null && vScope == null) return tools;
 
         List<String> wAllow = scopeAllow(wScope);
         List<String> wDeny  = scopeDeny(wScope);
@@ -1439,7 +1439,7 @@ public final class GenericAgentLoop {
         List<String> vDeny  = scopeDeny(vScope);
 
         List<Map<String, Object>> out = new ArrayList<>();
-        for (Map<String, Object> s : skills) {
+        for (Map<String, Object> s : tools) {
             Object n = s.get("name");
             if (n == null) continue;
             String name = n.toString();
@@ -1453,7 +1453,7 @@ public final class GenericAgentLoop {
         if (log.isDebugEnabled()) {
             log.debug("[WidgetScope] widget={} view={} wAllow={} wDeny={} vAllow={} vDeny={} forbidExec={} filtered={}→{}",
                     activeWidgetType, activeView, wAllow, wDeny, vAllow, vDeny, forbidExec,
-                    skills.size(), out.size());
+                    tools.size(), out.size());
         }
         return out;
     }
@@ -1575,11 +1575,11 @@ public final class GenericAgentLoop {
         }
     }
 
-    private static String buildToolsJson(List<Map<String, Object>> skills) {
-        if (skills.isEmpty()) return "[]";
+    private static String buildToolsJson(List<Map<String, Object>> tools) {
+        if (tools.isEmpty()) return "[]";
         StringBuilder sb = new StringBuilder("[");
         boolean first = true;
-        for (Map<String, Object> skill : skills) {
+        for (Map<String, Object> skill : tools) {
             if (!first) sb.append(",");
             first = false;
             try {

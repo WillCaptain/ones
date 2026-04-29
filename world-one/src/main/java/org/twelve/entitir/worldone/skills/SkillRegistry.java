@@ -143,7 +143,7 @@ public class SkillRegistry {
         for (AppRegistration app : apps.apps()) {
             if ("worldone-system".equals(app.appId())) continue;
             if ((app.widgets() == null || app.widgets().isEmpty())
-                    && (app.skills() == null || app.skills().isEmpty())) continue;
+                    && (app.tools() == null || app.tools().isEmpty())) continue;
             out.add(new SkillDefinition(
                     "aipp_" + app.appId().replaceAll("[^A-Za-z0-9_]", "_"),
                     app.appId(),

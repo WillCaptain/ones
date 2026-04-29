@@ -33,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p><b>ones</b> 是所有 AI Agent 共享的注册中心根目录，不限于 World One。
  *
  * <p>启动时自动扫描目录，对每个 manifest 调用 app 的
- * {@code /api/skills} 和 {@code /api/widgets} 端点，
+ * {@code /api/tools} 和 {@code /api/widgets} 端点，
  * 将结果缓存到内存供 {@link GenericAgentLoop} 使用。
  */
 @Component
@@ -74,7 +74,7 @@ public class AppRegistry {
      *
      * <p>包含两类 tool：
      * <ol>
-     *   <li>Skill 对应的 tool（来自 AIPP 的 /api/skills），供 LLM 调用路由</li>
+     *   <li>Tool 定义（来自 AIPP 的 /api/tools），供 LLM 调用路由</li>
      *   <li>Widget internal_tools（来自 AIPP widget manifest 的 internal_tools 列表），
      *       供 ToolProxy 调用路由；这些 tool 不暴露给 LLM，但在 AppRegistry 中有路由记录。</li>
      * </ol>
@@ -282,7 +282,7 @@ public class AppRegistry {
         refreshMissingAppsIfNeeded();
         List<String> hints = new ArrayList<>();
         for (AppRegistration app : registry.values()) {
-            for (Map<String, Object> skill : app.skills()) {
+            for (Map<String, Object> skill : app.tools()) {
                 Object hint = skill.get("memory_hints");
                 if (hint instanceof String s && !s.isBlank()) {
                     hints.add("[" + skill.get("name") + "] " + s.strip());
@@ -307,11 +307,11 @@ public class AppRegistry {
      * <p>去重是必要的：LLM API（OpenAI / Anthropic）要求 tool 名称唯一，
      * 否则整轮 400 "Tool names must be unique"。
      */
-    public List<Map<String, Object>> allSkillsAsTools() {
+    public List<Map<String, Object>> allTools() {
         refreshMissingAppsIfNeeded();
         Map<String, Map<String, Object>> byName = new LinkedHashMap<>();
         for (AppRegistration app : registry.values()) {
-            for (Map<String, Object> skill : app.skills()) {
+            for (Map<String, Object> skill : app.tools()) {
                 if (Boolean.TRUE.equals(skill.get("background"))) continue;
                 if (Boolean.TRUE.equals(skill.get("auto_pre_turn"))) continue;
                 if (!visibilityContains(skill, "llm")) continue;
@@ -329,13 +329,13 @@ public class AppRegistry {
         return new ArrayList<>(byName.values());
     }
 
-    /** 返回指定 app 对 LLM 可见的 tool 清单，保持与 {@link #allSkillsAsTools()} 相同过滤规则。 */
-    public List<Map<String, Object>> skillsAsToolsForApp(String appId) {
+    /** 返回指定 app 对 LLM 可见的 tool 清单，保持与 {@link #allTools()} 相同过滤规则。 */
+    public List<Map<String, Object>> toolsForApp(String appId) {
         refreshMissingAppsIfNeeded();
         AppRegistration app = registry.get(appId);
         if (app == null) return List.of();
         Map<String, Map<String, Object>> byName = new LinkedHashMap<>();
-        for (Map<String, Object> skill : app.skills()) {
+        for (Map<String, Object> skill : app.tools()) {
             if (Boolean.TRUE.equals(skill.get("background"))) continue;
             if (Boolean.TRUE.equals(skill.get("auto_pre_turn"))) continue;
             if (!visibilityContains(skill, "llm")) continue;
@@ -391,7 +391,7 @@ public class AppRegistry {
         refreshMissingAppsIfNeeded();
         List<Map.Entry<AppRegistration, Map<String, Object>>> result = new ArrayList<>();
         for (AppRegistration app : registry.values()) {
-            for (Map<String, Object> skill : app.skills()) {
+            for (Map<String, Object> skill : app.tools()) {
                 if (Boolean.TRUE.equals(skill.get("auto_pre_turn"))) {
                     result.add(Map.entry(app, skill));
                 }
@@ -407,7 +407,7 @@ public class AppRegistry {
     public Map<String, Object> findBackgroundSkill(String skillName) {
         refreshMissingAppsIfNeeded();
         for (AppRegistration app : registry.values()) {
-            for (Map<String, Object> skill : app.skills()) {
+            for (Map<String, Object> skill : app.tools()) {
                 if (skillName.equals(skill.get("name")) && Boolean.TRUE.equals(skill.get("background"))) {
                     return skill;
                 }
@@ -611,7 +611,7 @@ public class AppRegistry {
     }
 
     /**
-     * Phase 3：从 {@code /api/tools} 返回的 skills 列表中提取带 widget-level scope 的工具，
+     * Phase 3：从 {@code /api/tools} 返回的 tools 列表中提取带 widget-level scope 的工具，
      * 直接填充 {@link #toolIndex} 与 {@link #widgetCanvasToolsIndex}。
      *
      * <p>返回已从 {@code /api/tools} 贡献了 canvas 工具的 widget type 集合 —— 之后遍历
@@ -619,10 +619,10 @@ public class AppRegistry {
      * （{@code /api/tools} 为权威来源；widget manifest 同名字段作为遗留/回退）。
      */
     @SuppressWarnings("unchecked")
-    private Set<String> indexWidgetScopedFromTools(List<Map<String, Object>> skills, AppRegistration reg) {
+    private Set<String> indexWidgetScopedFromTools(List<Map<String, Object>> tools, AppRegistration reg) {
         Set<String> widgetsWithCanvasTools = new HashSet<>();
         Map<String, List<Map<String, Object>>> perWidget = new LinkedHashMap<>();
-        for (Map<String, Object> skill : skills) {
+        for (Map<String, Object> skill : tools) {
             Object scopeObj = skill.get("scope");
             if (!(scopeObj instanceof Map<?, ?> sMap)) continue;
             Map<String, Object> scope = (Map<String, Object>) sMap;
@@ -808,7 +808,7 @@ public class AppRegistry {
         refreshMissingAppsIfNeeded();
         List<Map.Entry<AppRegistration, Map<String, Object>>> result = new ArrayList<>();
         for (AppRegistration app : registry.values()) {
-            for (Map<String, Object> skill : app.skills()) {
+            for (Map<String, Object> skill : app.tools()) {
                 Object lc = skill.get("lifecycle");
                 String resolved = lc == null ? null : lc.toString();
                 if (resolved == null && Boolean.TRUE.equals(skill.get("background"))
@@ -961,7 +961,7 @@ public class AppRegistry {
 
     /**
      * 安装 app：将 manifest.json 写入 ~/.ones/apps/{appId}/manifest.json，
-     * 然后加载（调用 /api/skills 等端点）。
+     * 然后加载（调用 /api/tools 等端点）。
      */
     public void install(String appId, String baseUrl) throws Exception {
         Path appDir = APPS_ROOT.resolve(appId);
@@ -977,21 +977,21 @@ public class AppRegistry {
     }
 
     /**
-     * 注册 worldone 内置 app（不通过 HTTP，直接注入 skills/widgets）。
+     * 注册 worldone 内置 app（不通过 HTTP，直接注入 tools/widgets）。
      * 由 {@code WorldoneBuiltins} 在 Spring 容器启动后调用。
      *
      * @param appId   应用标识，如 "worldone"
      * @param name    显示名称
      * @param baseUrl 本地 HTTP 基地址（如 "http://localhost:8090"），供 GenericAgentLoop 调用工具
      * @param systemPromptContribution 贡献给 Layer 1 的 system prompt 片段（可为空）
-     * @param skills  skill 定义列表（OpenAI function-call 格式）
+     * @param tools   tool 定义列表（OpenAI function-call 格式）
      * @param widgets widget 定义列表（AIPP widget 格式）
      */
     public void registerBuiltin(String appId, String name, String baseUrl,
                                 String systemPromptContribution,
-                                List<Map<String, Object>> skills,
+                                List<Map<String, Object>> tools,
                                 List<Map<String, Object>> widgets) {
-        registerBuiltin(appId, name, baseUrl, systemPromptContribution, List.of(), skills, widgets);
+        registerBuiltin(appId, name, baseUrl, systemPromptContribution, List.of(), tools, widgets);
     }
 
     /**
@@ -1000,28 +1000,28 @@ public class AppRegistry {
     public void registerBuiltin(String appId, String name, String baseUrl,
                                 String systemPromptContribution,
                                 List<Map<String, Object>> promptContributions,
-                                List<Map<String, Object>> skills,
+                                List<Map<String, Object>> tools,
                                 List<Map<String, Object>> widgets) {
         AppRegistration reg = new AppRegistration(appId, name, baseUrl,
-                systemPromptContribution, promptContributions, skills, widgets);
+                systemPromptContribution, promptContributions, tools, widgets);
         registry.put(appId, reg);
 
-        for (Map<String, Object> skill : skills) {
-            Object toolName = skill.get("name");
+        for (Map<String, Object> tool : tools) {
+            Object toolName = tool.get("name");
             if (toolName != null) {
                 toolIndex.put(toolName.toString(), reg);
-                Object ic = skill.get("inject_context");
+                Object ic = tool.get("inject_context");
                 if (ic instanceof Map<?, ?> icMap) {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> icTyped = (Map<String, Object>) icMap;
                     skillInjectContextIndex.put(toolName.toString(), icTyped);
                 }
             }
-            indexSkillKind(skill);
-            indexHostDecouplingFields(skill, reg);
+            indexSkillKind(tool);
+            indexHostDecouplingFields(tool, reg);
         }
 
-        indexWidgetScopedFromTools(skills, reg);
+        indexWidgetScopedFromTools(tools, reg);
 
         for (Map<String, Object> widget : widgets) {
             Object type = widget.get("type");
@@ -1053,8 +1053,8 @@ public class AppRegistry {
             indexWidgetAppIdentity(type, widget);
             indexWidgetContext(type, widget);
         }
-        log.info("Registered builtin app: {} ({} skills, {} widgets)",
-                appId, skills.size(), widgets.size());
+        log.info("Registered builtin app: {} ({} tools, {} widgets)",
+                appId, tools.size(), widgets.size());
     }
 
     // ── internal ──────────────────────────────────────────────────────────────
@@ -1074,34 +1074,34 @@ public class AppRegistry {
             return;
         }
 
-        JsonNode skillsRoot = fetchSkillsRoot(baseUrl);
-        List<Map<String, Object>> skills  = fetchSkills(appId, skillsRoot);
+        JsonNode toolsRoot = fetchToolsRoot(baseUrl);
+        List<Map<String, Object>> tools  = fetchTools(appId, toolsRoot);
         List<Map<String, Object>> widgets = fetchWidgets(appId, baseUrl);
-        String systemPrompt = fetchSystemPrompt(skillsRoot);
-        List<Map<String, Object>> promptContributions = fetchPromptContributions(skillsRoot);
+        String systemPrompt = fetchSystemPrompt(toolsRoot);
+        List<Map<String, Object>> promptContributions = fetchPromptContributions(toolsRoot);
         String name = manifest.path("name").asText(appId);
 
-        AppRegistration reg = new AppRegistration(appId, name, baseUrl, systemPrompt, promptContributions, skills, widgets);
+        AppRegistration reg = new AppRegistration(appId, name, baseUrl, systemPrompt, promptContributions, tools, widgets);
         registry.put(appId, reg);
         appLoadErrorIndex.remove(appId);
 
-        for (Map<String, Object> skill : skills) {
-            Object toolName = skill.get("name");
+        for (Map<String, Object> tool : tools) {
+            Object toolName = tool.get("name");
             if (toolName != null) {
                 toolIndex.put(toolName.toString(), reg);
-                Object ic = skill.get("inject_context");
+                Object ic = tool.get("inject_context");
                 if (ic instanceof Map<?, ?> icMap) {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> icTyped = (Map<String, Object>) icMap;
                     skillInjectContextIndex.put(toolName.toString(), icTyped);
                 }
             }
-            indexSkillKind(skill);
-            indexHostDecouplingFields(skill, reg);
+            indexSkillKind(tool);
+            indexHostDecouplingFields(tool, reg);
         }
 
-        indexAppLevelDecoupling(skillsRoot, reg);
-        indexWidgetScopedFromTools(skills, reg);
+        indexAppLevelDecoupling(toolsRoot, reg);
+        indexWidgetScopedFromTools(tools, reg);
 
         for (Map<String, Object> widget : widgets) {
             Object type = widget.get("type");
@@ -1463,12 +1463,12 @@ public class AppRegistry {
      * Phase 4：原子 Tool 清单唯一权威端点为 {@code /api/tools}。
      * {@code /api/skills} 自 Phase 4 起专用于 Skill Playbook 索引，不再承载 Tool 定义。
      */
-    private JsonNode fetchSkillsRoot(String baseUrl) throws Exception {
+    private JsonNode fetchToolsRoot(String baseUrl) throws Exception {
         return JSON.readTree(get(baseUrl + "/api/tools"));
     }
 
     @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> fetchSkills(String appId, JsonNode root) throws Exception {
+    private List<Map<String, Object>> fetchTools(String appId, JsonNode root) throws Exception {
         List<Map<String, Object>> result = new ArrayList<>();
         JsonNode list = root.path("tools");
         for (JsonNode skill : list) {

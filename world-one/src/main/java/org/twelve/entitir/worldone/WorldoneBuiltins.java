@@ -14,7 +14,7 @@ import java.util.Map;
  *
  * <p>内置 skill 与远端 AIPP app 走相同的标准路径：
  * <ol>
- *   <li>LLM 从 {@code allSkillsAsTools()} 获得工具定义</li>
+ *   <li>LLM 从 {@code allTools()} 获得工具定义</li>
  *   <li>{@code GenericAgentLoop.callToolViaHttp()} 路由到 worldone 自身的 HTTP 端点</li>
  *   <li>{@link WorldoneSystemSkillsController} 处理请求，返回应用列表 widget</li>
  * </ol>

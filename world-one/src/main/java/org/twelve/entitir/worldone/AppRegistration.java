@@ -7,7 +7,7 @@ import java.util.Map;
  * 已注册的 AI-Native Application 描述信息。
  *
  * <p>由 {@link AppRegistry} 在启动时从 {@code ~/.ones/apps/} 中加载，
- * 并通过调用 app 的 {@code /api/skills} 和 {@code /api/widgets} 端点填充。
+ * 并通过调用 app 的 {@code /api/tools} 和 {@code /api/widgets} 端点填充。
  */
 public record AppRegistration(
     String appId,
@@ -15,7 +15,7 @@ public record AppRegistration(
     String baseUrl,
     String systemPromptContribution,
     List<Map<String, Object>> promptContributions,
-    List<Map<String, Object>> skills,
+    List<Map<String, Object>> tools,
     List<Map<String, Object>> widgets
 ) {
     /**
