@@ -276,7 +276,7 @@ GET  /api/skills/{id}/playbook    — SKILL.md 正文（给 Loop B）
 
 - `SkillRecaller`：Loop A 实现，持有触发词索引 + embedding 索引 + LLM 消歧器；
 - `SkillExecutor`：Loop B 实现，创建临时 / 继承 session，加载 playbook，限定 tools；
-- `SkillRegistry`：扩展现有 `AppRegistry`，按 level 维护四层索引；
+- `AippRegistry` / `AippSkillCatalog`：统一 AIPP 注册表门面与内部 skill catalog，按 level 维护四层索引；
 - `ChainController`：管理 skill chain 链路、摘要沉淀、临时 session 销毁。
 
 现有 `GenericAgentLoop` 降级为 **fallback tools 模式的执行器**——只在 Loop A 未召回时使用。
@@ -284,7 +284,7 @@ GET  /api/skills/{id}/playbook    — SKILL.md 正文（给 Loop B）
 ### 5.4 渐进迁移路径
 
 1. **Stage 0**（当前）：纯原子 tools 模式，`GenericAgentLoop` 全量注入。
-2. **Stage 1**：新增 SkillRegistry 分层索引，`/api/skills` 翻转为 Skill Playbook 索引端点（Phase 4 已完成），但执行路径不变（验证召回准确率）。
+2. **Stage 1**：新增 `AippSkillCatalog` 分层索引，`/api/skills` 翻转为 Skill Playbook 索引端点（Phase 4 已完成），但执行路径不变（验证召回准确率）。
 3. **Stage 2**：引入 Loop A 召回 + Loop B 执行，单 skill 场景跑通（以 `onboarding-intake` 为 spike）。
 4. **Stage 3**：引入 chain 机制，多 skill 组合场景跑通。
 5. **Stage 4**：将高频业务 skill 全部迁移到 SKILL.md；AAP-Pre 精简为纯路由判定。
